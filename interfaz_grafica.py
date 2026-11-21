@@ -101,9 +101,8 @@ def modular_fm(señal):
     return np.cos(fase).astype(np.float32)
 
 def demodular_fm(s_fm):
-    # Demodulador FM con limitador de amplitud (suprime ruido en la envolvente)
-    s_lim = np.sign(s_fm)  # Limitador duro de amplitud
-    analitica = hilbert(s_lim)
+    # Demodulador FM por señal analítica y discriminador de fase continuo
+    analitica = hilbert(s_fm)
     fase_inst = np.unwrap(np.angle(analitica))
     freq_inst = np.diff(fase_inst) * FS / (2 * np.pi)
     demod = (freq_inst - FC) / KF
@@ -141,7 +140,7 @@ class SDRModernApp(tk.Tk):
         self.fm_rec = demodular_fm(self.fm_mod)
 
         # Señales ruidosas cacheadas para demo instantánea
-        self.ruido_snr = 12.0  # Canal ruidoso realista
+        self.ruido_snr = 22.0  # Nivel de ruido para evidenciar la estática en AM frente a FM
         self.am_canal_ruido = simular_ruido_canal(self.am_mod, self.ruido_snr)
         self.am_rec_ruido = demodular_am(self.am_canal_ruido)
         self.fm_canal_ruido = simular_ruido_canal(self.fm_mod, self.ruido_snr)
