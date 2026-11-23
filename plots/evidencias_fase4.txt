@@ -1,0 +1,26 @@
+======================================================================
+ EVIDENCIA DE FASE 4: TRANSPORTE UDP — 2026-11-23 13:27:01
+======================================================================
+
+[1] RESULTADOS PRUEBA 1 (CANAL IDEAL):
+  - Frecuencia de muestreo  : 48000 Hz
+  - Canales                 : 1
+  - Bytes transmitidos      : 615,058 B
+  - Bytes recibidos         : 615,058 B
+  - Fidelidad binaria       : 100.00%
+  - Estado de recuperación  : PERFECTA (100% bit-exact)
+
+[2] RESULTADOS PRUEBA 2 (PRUEBA DE ROBUSTEZ):
+  - Paquete deliberadamente descartado : #0015
+  - Paquetes deliberadamente invertidos: #0030 y #0031
+  - Estrategia de ocultación (PLC)     : INTERPOLACIÓN
+  - Comportamiento del receptor        : Detectó desorden y hueco, rellenó con PLC y generó WAV íntegro.
+
+======================================================================
+ CONCLUSIÓN DE FASE 4:
+ La cadena de transporte UDP cumple todos los requisitos de la práctica:
+  1. Cabecera propia de protocolo documentada y serializada.
+  2. Fragmentación en bloques numerados respetando MTU Ethernet (1500B).
+  3. Detección demostrada de pérdidas y desorden en tiempo real.
+  4. Registro y trazabilidad completa mediante Logs UDP.
+======================================================================
