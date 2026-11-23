@@ -1,0 +1,28 @@
+======================================================================
+ EVIDENCIAS DE FASE 5: INTEGRACIÓN MODULACIÓN + UDP — 2026-11-23 13:58:10
+======================================================================
+
+[1] RESULTADOS DE MODULACIÓN AM SOBRE UDP:
+  - Archivo generado : audio_fase5_am.wav
+  - Portadora (fc)   : 8000 Hz | Índice ka: 0.90
+  - SNR recuperado   : +2.8 dB
+  - MSE              : 0.006804
+
+[2] RESULTADOS DE MODULACIÓN FM SOBRE UDP:
+  - Archivo generado : audio_fase5_fm.wav
+  - Portadora (fc)   : 10000 Hz | Desviación kf: 2000 Hz
+  - Propagación fase : CONTINUA (sin clics en costuras entre paquetes)
+  - SNR recuperado   : -0.3 dB
+  - MSE              : 0.013747
+
+[3] PRUEBA DE ROBUSTEZ Y OCULTACIÓN DE PÉRDIDAS (PLC):
+  - Archivo generado : audio_fase5_fm_perdidas.wav
+  - Paquete simulado : #0025 descartado deliberadamente
+  - Comportamiento   : Detección automática en RX, interpolación PLC y continuidad de señal
+
+======================================================================
+ CONCLUSIÓN FASE 5:
+  - Integración completada: modulación bloque a bloque en emisión y demodulación en recepción.
+  - Detección automática de AM vs FM mediante cabecera SDR.
+  - Logs y archivos de audio disponibles para demostración y evaluación.
+======================================================================
