@@ -34,8 +34,9 @@ except Exception:
 FS = 48_000        # 48 kHz
 FC = 8_000.0       # Portadora: 8 kHz
 KA = 0.90          # Índice AM
-KF = 2_000.0       # Desviación FM (Hz)
-CORTE_LP = 4_000.0 # Filtro paso-bajo voz (4 kHz)
+KF = 3_500.0       # Desviación FM (3.5 kHz para auténtica ventaja FM)
+CORTE_LP = 3_800.0 # Filtro paso-bajo voz general
+CORTE_FM = 3_200.0 # Filtro desénfasis FM (elimina siseo triangular de alta frecuencia)
 
 # Paleta de colores Dark Slate moderna
 BG_DARK = "#0f172a"       # Slate 900
@@ -91,8 +92,10 @@ def demodular_am(s_am):
     b, a = butter(5, CORTE_LP / (FS / 2), btype='low')
     demod = filtfilt(b, a, mezclado)
     demod -= np.mean(demod)
-    pico = np.max(np.abs(demod))
-    return (demod / pico * 0.95).astype(np.float32) if pico > 0 else demod
+    umbral = np.percentile(np.abs(demod), 99.8)
+    if umbral > 0:
+        demod = np.clip(demod / umbral * 0.95, -0.95, 0.95)
+    return demod.astype(np.float32)
 
 def modular_fm(señal):
     t = np.arange(len(señal)) / FS
@@ -101,17 +104,23 @@ def modular_fm(señal):
     return np.cos(fase).astype(np.float32)
 
 def demodular_fm(s_fm):
-    # Demodulador FM por señal analítica y discriminador de fase continuo
+    # Demodulador FM con desénfasis y normalización robusta contra picos de ruido
     analitica = hilbert(s_fm)
     fase_inst = np.unwrap(np.angle(analitica))
     freq_inst = np.diff(fase_inst) * FS / (2 * np.pi)
     demod = (freq_inst - FC) / KF
     demod = np.append(demod, 0.0)
-    b, a = butter(5, CORTE_LP / (FS / 2), btype='low')
+    
+    # Filtro desénfasis a 3.2 kHz (elimina el siseo agudo parabólico de FM)
+    b, a = butter(4, CORTE_FM / (FS / 2), btype='low')
     demod = filtfilt(b, a, demod)
     demod -= np.mean(demod)
-    pico = np.max(np.abs(demod))
-    return (demod / pico * 0.95).astype(np.float32) if pico > 0 else demod
+    
+    # Normalización por percentil 99.8% (evita que un pico puntual hunda el volumen)
+    umbral = np.percentile(np.abs(demod), 99.8)
+    if umbral > 0:
+        demod = np.clip(demod / umbral * 0.95, -0.95, 0.95)
+    return demod.astype(np.float32)
 
 def simular_ruido_canal(señal, snr_db=12.0):
     pot_sig = np.mean(señal ** 2)
@@ -139,8 +148,8 @@ class SDRModernApp(tk.Tk):
         self.fm_mod = modular_fm(self.voz)
         self.fm_rec = demodular_fm(self.fm_mod)
 
-        # Señales ruidosas cacheadas para demo instantánea
-        self.ruido_snr = 22.0  # Nivel de ruido para evidenciar la estática en AM frente a FM
+        # Señales ruidosas para la comparativa
+        self.ruido_snr = 18.0  # Nivel donde el canal empieza a degradar la amplitud
         self.am_canal_ruido = simular_ruido_canal(self.am_mod, self.ruido_snr)
         self.am_rec_ruido = demodular_am(self.am_canal_ruido)
         self.fm_canal_ruido = simular_ruido_canal(self.fm_mod, self.ruido_snr)
