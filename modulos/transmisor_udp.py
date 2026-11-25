@@ -24,6 +24,13 @@ import wave
 from datetime import datetime
 from typing import List, Tuple
 
+
+# Ruta al directorio de modulos (funciona tanto si se ejecuta desde la raiz como desde modulos/)
+import os as _os, sys as _sys
+_dir = _os.path.dirname(_os.path.abspath(__file__))
+if _dir not in _sys.path:
+    _sys.path.insert(0, _dir)
+
 from protocolo_sdr import (
     CabeceraSDR,
     FLAG_START,

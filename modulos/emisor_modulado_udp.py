@@ -37,6 +37,13 @@ if os.path.isdir(_vendor) and _vendor not in sys.path:
 
 import numpy as np
 
+
+# Ruta al directorio de modulos (funciona tanto si se ejecuta desde la raiz como desde modulos/)
+import os as _os, sys as _sys
+_dir = _os.path.dirname(_os.path.abspath(__file__))
+if _dir not in _sys.path:
+    _sys.path.insert(0, _dir)
+
 from protocolo_sdr import (
     CabeceraSDR,
     FLAG_START, FLAG_DATA, FLAG_END,

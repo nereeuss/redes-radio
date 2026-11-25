@@ -17,6 +17,11 @@ import time
 import wave
 from datetime import datetime
 
+# Añadir la carpeta modulos/ al path para que los imports funcionen
+_modulos = os.path.join(os.path.dirname(__file__), "modulos")
+if _modulos not in sys.path:
+    sys.path.insert(0, _modulos)
+
 # Importar componentes de la Fase 4
 from transmisor_udp import transmitir_udp
 from receptor_udp import recibir_udp

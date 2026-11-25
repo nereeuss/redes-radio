@@ -19,6 +19,12 @@ import sys
 _vendor = os.path.join(os.path.dirname(__file__), "vendor")
 if os.path.isdir(_vendor) and _vendor not in sys.path:
     sys.path.insert(0, _vendor)
+
+# Añadir carpeta modulos/ al path para protocolo_sdr y modulador_en_linea
+_modulos = os.path.join(os.path.dirname(__file__), "modulos")
+if _modulos not in sys.path:
+    sys.path.insert(0, _modulos)
+
 import numpy as np
 import tkinter as tk
 from tkinter import ttk, messagebox

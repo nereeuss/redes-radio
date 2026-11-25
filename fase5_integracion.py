@@ -24,6 +24,11 @@ _vendor = os.path.join(os.path.dirname(__file__), "vendor")
 if os.path.isdir(_vendor) and _vendor not in sys.path:
     sys.path.insert(0, _vendor)
 
+# Añadir la carpeta modulos/ al path
+_modulos = os.path.join(os.path.dirname(__file__), "modulos")
+if _modulos not in sys.path:
+    sys.path.insert(0, _modulos)
+
 import numpy as np
 
 from emisor_modulado_udp import emitir_modulado
