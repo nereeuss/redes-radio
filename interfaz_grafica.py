@@ -323,6 +323,16 @@ class SDRModernApp(tk.Tk):
                     self._on_voz_actualizada(*datos)
                 elif evento == "VOZ_ERROR":
                     self._on_voz_error(*datos)
+                elif evento == "RX_LOG":
+                    self._rx_log(*datos)
+                elif evento == "RX_PKT":
+                    self._rx_notificar_pkt(*datos)
+                elif evento == "RX_FIN":
+                    self._rx_finalizar(*datos)
+                elif evento == "RX_CANCEL":
+                    self._rx_cancelar()
+                elif evento == "RX_ERROR":
+                    self._rx_error(*datos)
             except queue.Empty:
                 break
         self.after(20, self._verificar_cola_eventos)
@@ -438,12 +448,14 @@ class SDRModernApp(tk.Tk):
         self.launcher_puerto = tk.IntVar(value=5005)
         self.launcher_tab_rx = tk.StringVar(value="TAB4")
 
-        # Dos contenedores principales: Launcher de Bienvenida y Laboratorio
+        # Dos contenedores principales: Launcher, Laboratorio (Emisor/Local) y Receptor dedicado
         self.frame_launcher = tk.Frame(self, bg=BG_DARK)
         self.frame_lab = tk.Frame(self, bg=BG_DARK)
+        self.frame_receptor = tk.Frame(self, bg=BG_DARK)
 
         self._construir_launcher()
         self._construir_laboratorio()
+        self._construir_receptor()
 
         # Mostrar primero la pantalla de bienvenida
         self.frame_launcher.pack(fill=tk.BOTH, expand=True)
@@ -592,29 +604,356 @@ class SDRModernApp(tk.Tk):
 
     def _entrar_laboratorio(self):
         self.frame_launcher.pack_forget()
+        self.frame_receptor.pack_forget()
         self.frame_lab.pack(fill=tk.BOTH, expand=True)
 
     def _ir_a_inicio(self):
         self.parar_audio()
+        self._detener_receptor_dedicado()
         self.frame_lab.pack_forget()
+        self.frame_receptor.pack_forget()
         self.frame_launcher.pack(fill=tk.BOTH, expand=True)
 
     def _iniciar_como_receptor(self):
         puerto = int(self.launcher_puerto.get())
-        destino = self.launcher_tab_rx.get()
-        self._entrar_laboratorio()
-        if destino == "TAB5":
-            self.notebook.select(self.tab_fase5)
-            self.f5_modo_red.set("RECEPTOR")
-            self.f5_puerto.set(puerto)
-            self._on_f5_red_change()
-            self.after(150, self._iniciar_f5)
-        else:
-            self.notebook.select(self.tab_red)
-            self.f4_modo_red.set("RECEPTOR")
-            self.f4_puerto.set(puerto)
-            self._on_f4_red_change()
-            self.after(150, self._iniciar_transmision_live)
+        self.rx_puerto.set(puerto)
+        self.frame_launcher.pack_forget()
+        self.frame_lab.pack_forget()
+        self.frame_receptor.pack(fill=tk.BOTH, expand=True)
+        self.after(150, self._iniciar_receptor_dedicado)
+
+    # ────────────────────────────────────────────────────────────
+    # VISTA DEDICADA DE RECEPTOR EN RED (OPCIÓN B)
+    # ────────────────────────────────────────────────────────────
+    def _construir_receptor(self):
+        self.rx_puerto = tk.IntVar(value=5005)
+        self.rx_en_curso = False
+        self.rx_detener_flag = False
+        self.rx_audio_recuperado = None
+        self.rx_audio_espia = None
+
+        # Header limpio de Receptor
+        header = tk.Frame(self.frame_receptor, bg=BG_CARD, height=64, padx=20)
+        header.pack(fill=tk.X, side=tk.TOP)
+        tk.Frame(self.frame_receptor, bg=BORDER_CARD, height=1).pack(fill=tk.X, side=tk.TOP)
+
+        titulo_box = tk.Frame(header, bg=BG_CARD)
+        titulo_box.pack(side=tk.LEFT, pady=10)
+        tk.Label(titulo_box, text="Modo Receptor — Escucha en Red UDP",
+                 font=("Segoe UI", 12, "bold"), fg=TEXT_WHITE, bg=BG_CARD).pack(anchor="w")
+        tk.Label(titulo_box, text="Detecta automáticamente paquetes de Fase 4 (con máscara) o Fase 5 (AM/FM)",
+                 font=("Segoe UI", 8), fg=TEXT_SEC, bg=BG_CARD).pack(anchor="w", pady=(2, 0))
+
+        f_hdr = tk.Frame(header, bg=BG_CARD)
+        f_hdr.pack(side=tk.RIGHT, pady=12)
+        ttk.Button(f_hdr, text="← Inicio / Cambiar modo", style="Blue.TButton",
+                   command=self._ir_a_inicio).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(f_hdr, text="■ Detener audio", style="Stop.TButton",
+                   command=self.parar_audio).pack(side=tk.LEFT)
+
+        paned = tk.PanedWindow(self.frame_receptor, orient=tk.HORIZONTAL, bg=BG_DARK, bd=0, sashwidth=4)
+        paned.pack(fill=tk.BOTH, expand=True, padx=14, pady=10)
+
+        izq = self._crear_panel_izq_scroll(paned, width=445)
+
+        # Paso 1: Conexión de escucha
+        c1 = self._crear_tarjeta(izq, "Paso 1 · Conexión de escucha", estado="Red UDP", pady=5)
+        ip_box = tk.Frame(c1, bg=BG_INNER, padx=10, pady=8)
+        ip_box.pack(fill=tk.X, pady=(0, 8))
+        tk.Label(ip_box, text=f"Tu IP local: {self.ip_local}", font=("Segoe UI", 10, "bold"),
+                 fg=COLOR_REC, bg=BG_INNER).pack(anchor="w")
+        tk.Label(ip_box, text="Dile a tu compañera que envíe a esta IP.",
+                 font=("Segoe UI", 8), fg=TEXT_SEC, bg=BG_INNER).pack(anchor="w")
+
+        f_p = tk.Frame(c1, bg=BG_CARD)
+        f_p.pack(fill=tk.X, pady=(0, 10))
+        tk.Label(f_p, text="Puerto de escucha:", font=("Segoe UI", 9), fg=TEXT_SEC, bg=BG_CARD).pack(side=tk.LEFT)
+        ttk.Entry(f_p, textvariable=self.rx_puerto, width=8).pack(side=tk.LEFT, padx=(8, 12))
+        self.lbl_rx_estado = tk.Label(f_p, text="○ En espera", font=("Segoe UI", 8, "bold"),
+                                      fg=TEXT_SEC, bg=BG_CARD)
+        self.lbl_rx_estado.pack(side=tk.RIGHT)
+
+        f_btns = tk.Frame(c1, bg=BG_CARD)
+        f_btns.pack(fill=tk.X)
+        self.btn_rx_iniciar = ttk.Button(f_btns, text="▶ Ponerse a la escucha", style="Modern.TButton",
+                                         command=self._iniciar_receptor_dedicado)
+        self.btn_rx_iniciar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        self.btn_rx_detener = ttk.Button(f_btns, text="■ Detener", style="Stop.TButton",
+                                         command=self._detener_receptor_dedicado, state=tk.DISABLED)
+        self.btn_rx_detener.pack(side=tk.RIGHT)
+
+        # Paso 2: Paquetes recibidos
+        c2 = self._crear_tarjeta(izq, "Paso 2 · Paquetes recibidos", estado="En vivo", pady=5)
+        self.rx_prog = ttk.Progressbar(c2, orient=tk.HORIZONTAL, mode="determinate")
+        self.rx_prog.pack(fill=tk.X, pady=(0, 8))
+
+        self.rx_terminal = tk.Text(c2, height=6, bg=BG_TERMINAL, fg=TEXT_WHITE,
+                                   font=("Consolas", 8), bd=0, padx=8, pady=6, wrap=tk.NONE)
+        self.rx_terminal.pack(fill=tk.X, pady=(0, 8))
+        self.rx_terminal.insert(tk.END, "[Receptor] Listo para escuchar paquetes UDP...\n")
+        self.rx_terminal.config(state=tk.DISABLED)
+
+        f_grid = tk.Frame(c2, bg=BG_CARD)
+        f_grid.pack(fill=tk.X)
+        for titulo, attr in [
+            ("PROTOCOLO", "lbl_rx_kpi_modo"),
+            ("BLOQUES", "lbl_rx_kpi_pkts"),
+            ("PÉRDIDAS", "lbl_rx_kpi_perd"),
+            ("JITTER", "lbl_rx_kpi_jit"),
+        ]:
+            box = tk.Frame(f_grid, bg=BG_INNER, padx=6, pady=6)
+            box.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+            tk.Label(box, text=titulo, font=("Segoe UI", 6, "bold"), fg=TEXT_SEC, bg=BG_INNER).pack()
+            lbl = tk.Label(box, text="--", font=("Segoe UI", 8, "bold"), fg=TEXT_WHITE, bg=BG_INNER)
+            lbl.pack()
+            setattr(self, attr, lbl)
+
+        # Paso 3: Reproducir audio recibido
+        c3 = self._crear_tarjeta(izq, "Paso 3 · Escuchar audio recibido", estado="Resultado", pady=5)
+        f_play = tk.Frame(c3, bg=BG_CARD)
+        f_play.pack(fill=tk.X)
+        self.btn_rx_play = ttk.Button(f_play, text="▶ Escuchar voz recuperada", style="Green.TButton",
+                                      command=self._rx_reproducir_voz, state=tk.DISABLED)
+        self.btn_rx_play.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        self.btn_rx_espia = ttk.Button(f_play, text="Espía (sin clave)", style="Blue.TButton",
+                                       command=self._rx_reproducir_espia, state=tk.DISABLED)
+        self.btn_rx_espia.pack(side=tk.RIGHT)
+
+        # Panel Derecho: Gráficas de audio recibido
+        der = tk.Frame(paned, bg=BG_DARK, padx=10, pady=10)
+        paned.add(der, minsize=500)
+        self.fig_rx = Figure(figsize=(7, 5), dpi=120, facecolor=BG_CARD)
+        self.canvas_rx = FigureCanvasTkAgg(self.fig_rx, master=der)
+        self.canvas_rx.get_tk_widget().configure(highlightthickness=0, bd=0)
+        self.canvas_rx.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self._plot_rx_inicial()
+
+    def _plot_rx_inicial(self):
+        self.fig_rx.clf()
+        ax = self.fig_rx.add_subplot(1, 1, 1)
+        self._estilizar_eje(ax)
+        ax.text(0.5, 0.5, "Esperando señal de voz desde otro ordenador...\n\nCuando lleguen los paquetes, aquí verás la onda y el espectro recuperado.",
+                ha="center", va="center", fontsize=10, color=TEXT_SEC)
+        ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+        self.fig_rx.tight_layout(pad=2.0)
+        self.canvas_rx.draw()
+
+    def _iniciar_receptor_dedicado(self):
+        if self.rx_en_curso:
+            return
+        self.rx_en_curso = True
+        self.rx_detener_flag = False
+        puerto = int(self.rx_puerto.get())
+
+        self.btn_rx_iniciar.config(state=tk.DISABLED)
+        self.btn_rx_detener.config(state=tk.NORMAL)
+        self.btn_rx_play.config(state=tk.DISABLED)
+        self.btn_rx_espia.config(state=tk.DISABLED)
+        self.lbl_rx_estado.config(text=f"● Escuchando :{puerto}", fg=ACCENT)
+        self.rx_prog["value"] = 0
+
+        self.rx_terminal.config(state=tk.NORMAL)
+        self.rx_terminal.delete("1.0", tk.END)
+        self.rx_terminal.insert(tk.END, f"[Receptor] Escuchando en 0.0.0.0:{puerto} (IP: {self.ip_local})\n")
+        self.rx_terminal.config(state=tk.DISABLED)
+        self._plot_rx_inicial()
+
+        threading.Thread(target=self._hilo_receptor_dedicado, args=(puerto,), daemon=True).start()
+
+    def _detener_receptor_dedicado(self):
+        if self.rx_en_curso:
+            self.rx_detener_flag = True
+
+    def _rx_log(self, msg):
+        self.rx_terminal.config(state=tk.NORMAL)
+        self.rx_terminal.insert(tk.END, msg + "\n")
+        self.rx_terminal.see(tk.END)
+        self.rx_terminal.config(state=tk.DISABLED)
+
+    def _rx_notificar_pkt(self, n_rx, total_est, proto_txt, jitter_ms, log_txt):
+        self.rx_prog["value"] = min(100.0, (n_rx / max(1, total_est)) * 100)
+        self.lbl_rx_kpi_modo.config(text=proto_txt)
+        self.lbl_rx_kpi_pkts.config(text=f"{n_rx}/{total_est}")
+        self.lbl_rx_kpi_perd.config(text="0")
+        self.lbl_rx_kpi_jit.config(text=f"{jitter_ms:.2f} ms")
+        if log_txt:
+            self._rx_log(log_txt)
+
+    def _rx_finalizar(self, audio_rec, audio_espia, proto_txt, recibidos, esperados, jitter_ms):
+        self.rx_en_curso = False
+        self.rx_audio_recuperado = audio_rec
+        self.rx_audio_espia = audio_espia
+        self.btn_rx_iniciar.config(state=tk.NORMAL)
+        self.btn_rx_detener.config(state=tk.DISABLED)
+        self.btn_rx_play.config(state=tk.NORMAL)
+        if audio_espia is not None:
+            self.btn_rx_espia.config(state=tk.NORMAL)
+        self.lbl_rx_estado.config(text="● Audio recibido", fg=COLOR_REC)
+        perd = max(0, esperados - recibidos)
+        self.lbl_rx_kpi_perd.config(text=f"{perd}", fg=COLOR_ALERT if perd > 0 else COLOR_REC)
+        self._rx_log(f"[OK] Recepción completada ({recibidos}/{esperados} bloques, {proto_txt}).")
+
+        # Dibujar forma de onda y espectro del audio recibido
+        self.fig_rx.clf()
+        ax1 = self.fig_rx.add_subplot(2, 1, 1)
+        ax2 = self.fig_rx.add_subplot(2, 1, 2)
+        self._estilizar_eje(ax1)
+        self._estilizar_eje(ax2)
+
+        n_win = min(len(audio_rec), int(0.040 * FS))
+        peak_idx = int(np.argmax(np.abs(audio_rec)))
+        i0 = max(0, min(peak_idx - n_win // 3, len(audio_rec) - n_win))
+        i1 = i0 + n_win
+        t_ms = (np.arange(i0, i1) / FS) * 1000
+        ax1.plot(t_ms, audio_rec[i0:i1], color=COLOR_REC, lw=1.2)
+        ax1.set_title(f"Voz recibida por red ({proto_txt})", fontsize=9.5, fontweight="bold", color=TEXT_WHITE, loc="left", pad=8)
+        ax1.set_xlabel("Tiempo (ms)", color=TEXT_SEC, fontsize=8)
+        ax1.set_ylabel("Amplitud", color=TEXT_SEC, fontsize=8)
+        ax1.set_ylim(-1.15, 1.15)
+
+        N = len(audio_rec)
+        mags = 20 * np.log10(np.abs(np.fft.rfft(audio_rec)) / max(1, N) + 1e-12)
+        freqs = np.fft.rfftfreq(N, 1 / FS) / 1000
+        ax2.plot(freqs, mags, color=ACCENT, lw=1.0)
+        ax2.set_title("Espectro de frecuencias recibido (0 - 8 kHz)", fontsize=9.5, fontweight="bold", color=TEXT_WHITE, loc="left", pad=8)
+        ax2.set_xlabel("Frecuencia (kHz)", color=TEXT_SEC, fontsize=8)
+        ax2.set_ylabel("Magnitud (dB)", color=TEXT_SEC, fontsize=8)
+        ax2.set_xlim(0, 8)
+
+        self.fig_rx.tight_layout(pad=2.0)
+        self.canvas_rx.draw()
+
+    def _rx_cancelar(self):
+        self.rx_en_curso = False
+        self.btn_rx_iniciar.config(state=tk.NORMAL)
+        self.btn_rx_detener.config(state=tk.DISABLED)
+        self.lbl_rx_estado.config(text="○ Detenido", fg=TEXT_SEC)
+        self._rx_log("[Receptor] Escucha detenida.")
+
+    def _rx_error(self, err):
+        self.rx_en_curso = False
+        self.btn_rx_iniciar.config(state=tk.NORMAL)
+        self.btn_rx_detener.config(state=tk.DISABLED)
+        self.lbl_rx_estado.config(text="● Error", fg=COLOR_ALERT)
+        self._rx_log(f"[Error] {err}")
+
+    def _rx_reproducir_voz(self):
+        if self.rx_audio_recuperado is not None:
+            self.reproducir_audio(self.rx_audio_recuperado)
+
+    def _rx_reproducir_espia(self):
+        if self.rx_audio_espia is not None:
+            self._rx_log("[Espía] Reproduciendo tráfico sin clave: solo se oye música 8-bits.")
+            self.reproducir_audio(self.rx_audio_espia)
+
+    def _hilo_receptor_dedicado(self, puerto: int):
+        HDR5_FMT = "!4sIIdBffH"
+        HDR5_SIZE = struct.calcsize(HDR5_FMT)
+        sock = None
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("0.0.0.0", puerto))
+            sock.settimeout(0.25)
+
+            proto = None
+            bloques_rx = {}
+            raw_espia = []
+            ultimo_t = None
+            total_est = 601
+            modo_5 = "FM"
+            fc_5 = FC_FM_DEFAULT
+            param_5 = KF_DEFAULT
+            jitter = 0.0
+            prev_rx = 0.0
+            prev_tx = 0.0
+
+            while not self.rx_detener_flag:
+                try:
+                    data, addr = sock.recvfrom(4096)
+                    t_rx = time.time()
+
+                    if len(data) >= HDR5_SIZE and data[:4] == b"SDR5":
+                        mag, s_num, t_tot, ts, mc, f_c, p_val, pay_len = struct.unpack(HDR5_FMT, data[:HDR5_SIZE])
+                        if mc == 99:
+                            break
+                        proto = "F5"
+                        modo_5 = "FM" if mc == 1 else "AM"
+                        fc_5, param_5, total_est = f_c, p_val, t_tot
+                        muestras = deserializar_bloque(data[HDR5_SIZE:HDR5_SIZE + pay_len])
+                        if ultimo_t is None:
+                            self.cola_eventos.put(("RX_LOG", (f"[RX] Flujo Fase 5 ({modo_5}) desde {addr[0]}:{addr[1]}",)))
+                        ultimo_t = t_rx
+                        if prev_rx > 0 and ts > 0:
+                            jitter += (abs((t_rx - prev_rx) - (ts - prev_tx)) - jitter) / 16.0
+                        prev_rx, prev_tx = t_rx, ts
+                        bloques_rx[s_num] = muestras
+                        n_rx = len(bloques_rx)
+                        log_txt = f"[RX-{modo_5}] Bloque #{s_num:03d}/{total_est} ({len(data)}B)" if (n_rx == 1 or n_rx % 25 == 0) else None
+                        self.cola_eventos.put(("RX_PKT", (n_rx, total_est, f"F5 {modo_5}", jitter * 1000.0, log_txt)))
+                    else:
+                        pkt = desempaquetar(data)
+                        if pkt["seq"] == 0xFFFFFFFF:
+                            break
+                        proto = "F4"
+                        if ultimo_t is None:
+                            self.cola_eventos.put(("RX_LOG", (f"[RX] Flujo Fase 4 (UDP) desde {addr[0]}:{addr[1]}",)))
+                        ultimo_t = t_rx
+                        ts = pkt["timestamp"]
+                        if prev_rx > 0 and ts > 0:
+                            jitter += (abs((t_rx - prev_rx) - (ts - prev_tx)) - jitter) / 16.0
+                        prev_rx, prev_tx = t_rx, ts
+                        if pkt["mask"] == MASK_ON:
+                            raw_espia.append(pkt["muestras"])
+                            muestras = retirar_mascara(pkt["muestras"], self.mascara, n_seq=pkt["seq"], bloque=SAMPLES_PER_BLOCK)
+                        else:
+                            muestras = pkt["muestras"]
+                        bloques_rx[pkt["seq"]] = muestras
+                        n_rx = len(bloques_rx)
+                        log_txt = f"[RX-UDP] Paquete #{pkt['seq']:03d} ({len(data)}B)" if (n_rx == 1 or n_rx % 25 == 0) else None
+                        self.cola_eventos.put(("RX_PKT", (n_rx, max(641, n_rx), "F4 UDP", jitter * 1000.0, log_txt)))
+                except socket.timeout:
+                    if ultimo_t is not None and (time.time() - ultimo_t) > 1.8:
+                        break
+                    continue
+                except ValueError:
+                    continue
+
+            if self.rx_detener_flag or not bloques_rx:
+                self.cola_eventos.put(("RX_CANCEL", ()))
+                return
+
+            seq_min, seq_max = min(bloques_rx.keys()), max(bloques_rx.keys())
+            esperados = seq_max - seq_min + 1
+            partes = []
+            for s in range(seq_min, seq_max + 1):
+                if s in bloques_rx:
+                    partes.append(bloques_rx[s])
+                else:
+                    partes.append(partes[-1] * 0.5 if partes else np.zeros(512, dtype=np.float32))
+            señal_rx = np.concatenate(partes)
+
+            if proto == "F5":
+                if modo_5 == "AM":
+                    audio_rec, _ = demodular_am_bloque(señal_rx, fc=fc_5, ka=param_5, fs=FS, sample_offset=0)
+                else:
+                    audio_rec = demodular_fm_bloque(señal_rx, fc=fc_5, kf=param_5, fs=FS)
+                espia_sig = None
+                proto_lbl = f"Fase 5 ({modo_5})"
+            else:
+                audio_rec = demodular_fm(señal_rx)
+                espia_sig = np.concatenate(raw_espia) if raw_espia else None
+                proto_lbl = "Fase 4 (UDP + Máscara)" if espia_sig is not None else "Fase 4 (UDP)"
+
+            self.cola_eventos.put(("RX_FIN", (audio_rec, espia_sig, proto_lbl, len(bloques_rx), esperados, jitter * 1000.0)))
+        except Exception as e:
+            self.cola_eventos.put(("RX_ERROR", (f"{type(e).__name__}: {e}",)))
+        finally:
+            if sock is not None:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
 
     def _construir_laboratorio(self):
         # Header superior limpio
