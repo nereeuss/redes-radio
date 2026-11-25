@@ -465,11 +465,12 @@ class SDRModernApp(tk.Tk):
 
         cols = tk.Frame(centro, bg=BG_DARK)
         cols.pack()
+        cols.grid_columnconfigure(0, minsize=410)
+        cols.grid_columnconfigure(1, minsize=410)
 
         # ── OPCIÓN A: Modo Emisor / Laboratorio Local ──
-        col_a = tk.Frame(cols, bg=BG_DARK, width=390)
-        col_a.pack(side=tk.LEFT, padx=14, fill=tk.Y)
-        col_a.pack_propagate(False)
+        col_a = tk.Frame(cols, bg=BG_DARK)
+        col_a.grid(row=0, column=0, padx=14, sticky="nsew")
 
         card_a = self._crear_tarjeta(col_a, "Opción A · Modo Emisor / Laboratorio Local", estado="Audio propio", pady=0)
         tk.Label(
@@ -502,9 +503,8 @@ class SDRModernApp(tk.Tk):
         self.btn_entrar_lab.pack(fill=tk.X)
 
         # ── OPCIÓN B: Modo Receptor en Red ──
-        col_b = tk.Frame(cols, bg=BG_DARK, width=390)
-        col_b.pack(side=tk.LEFT, padx=14, fill=tk.Y)
-        col_b.pack_propagate(False)
+        col_b = tk.Frame(cols, bg=BG_DARK)
+        col_b.grid(row=0, column=1, padx=14, sticky="nsew")
 
         card_b = self._crear_tarjeta(col_b, "Opción B · Modo Receptor en Red", estado="Esperar señal", pady=0)
         tk.Label(
