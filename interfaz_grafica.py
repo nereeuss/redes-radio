@@ -299,6 +299,10 @@ class SDRModernApp(tk.Tk):
                     self._cancelar_f5()
                 elif evento == "F5_ERROR":
                     self._error_f5(*datos)
+                elif evento == "VOZ_GRABADA":
+                    self._on_voz_actualizada(*datos)
+                elif evento == "VOZ_ERROR":
+                    self._on_voz_error(*datos)
             except queue.Empty:
                 break
         self.after(20, self._verificar_cola_eventos)
@@ -357,11 +361,25 @@ class SDRModernApp(tk.Tk):
         tk.Label(titulo_box, text="📻 SDR RADIO TRANSMITTER & UDP NETWORK", font=("Segoe UI", 13, "bold"),
                  fg=COLOR_VOZ, bg=BG_CARD).pack(anchor="w")
         dur_s = len(self.voz) / FS
-        tk.Label(titulo_box, text=f"Voz real cargada ({dur_s:.1f} s a 48 kHz) — Portadora fc = 8 kHz — Sockets UDP",
-                 font=("Segoe UI", 8), fg=TEXT_MUTED, bg=BG_CARD).pack(anchor="w")
+        self.lbl_header_sub = tk.Label(
+            titulo_box,
+            text=f"Audio activo: audio_original.wav ({dur_s:.1f} s a 48 kHz) — Portadora fc = 8 kHz — Sockets UDP",
+            font=("Segoe UI", 8), fg=TEXT_MUTED, bg=BG_CARD
+        )
+        self.lbl_header_sub.pack(anchor="w")
 
-        ttk.Button(header, text="⏹ Parar Reproducción", style="Stop.TButton",
-                   command=self.parar_audio).pack(side=tk.RIGHT, pady=12)
+        f_hdr_btns = tk.Frame(header, bg=BG_CARD)
+        f_hdr_btns.pack(side=tk.RIGHT, pady=12)
+
+        self.btn_grabar_voz = ttk.Button(f_hdr_btns, text="🎤 Grabar Tu Voz (4s)", style="Green.TButton",
+                                         command=self._iniciar_grabacion_voz)
+        self.btn_grabar_voz.pack(side=tk.LEFT, padx=(0, 6))
+
+        ttk.Button(f_hdr_btns, text="🔄 WAV Original", style="Blue.TButton",
+                   command=self._restaurar_voz_original).pack(side=tk.LEFT, padx=(0, 6))
+
+        ttk.Button(f_hdr_btns, text="⏹ Parar Audio", style="Stop.TButton",
+                   command=self.parar_audio).pack(side=tk.LEFT)
 
         # Notebook con las 5 pestañas
         self.notebook = ttk.Notebook(self)
@@ -1926,6 +1944,57 @@ class SDRModernApp(tk.Tk):
     def _reproducir_f5_rec(self):
         if self.f5_audio_recuperado is not None:
             self.reproducir_audio(self.f5_audio_recuperado)
+
+    def _iniciar_grabacion_voz(self):
+        if not AUDIO_OK:
+            messagebox.showerror("Error de audio", "No se detectó sounddevice para grabar desde el micrófono.")
+            return
+        self.btn_grabar_voz.config(text="🔴 Grabando (4s)...", state=tk.DISABLED)
+        self.lbl_header_sub.config(text="🎙️ ¡Habla ahora al micrófono durante 4 segundos!", fg="#fbbf24")
+        threading.Thread(target=self._hilo_grabar_voz, daemon=True).start()
+
+    def _hilo_grabar_voz(self):
+        try:
+            dur_s = 4.0
+            grab = sd.rec(int(dur_s * FS), samplerate=FS, channels=1, dtype='float32')
+            sd.wait()
+            voz = grab.flatten().astype(np.float32)
+            voz -= np.mean(voz)
+            pico = np.max(np.abs(voz))
+            if pico > 1e-4:
+                voz = voz / pico * 0.95
+            self.cola_eventos.put(("VOZ_GRABADA", (voz, "🎤 Grabación en vivo")))
+        except Exception as e:
+            self.cola_eventos.put(("VOZ_ERROR", (f"{type(e).__name__}: {e}",)))
+
+    def _on_voz_actualizada(self, nueva_voz, origen):
+        self.voz = nueva_voz
+        self.am_mod = modular_am(self.voz)
+        self.am_rec = demodular_am(self.am_mod)
+        self.fm_mod = modular_fm(self.voz)
+        self.fm_rec = demodular_fm(self.fm_mod)
+        self.am_canal_ruido = simular_ruido_canal(self.am_mod, self.ruido_snr)
+        self.am_rec_ruido = demodular_am(self.am_canal_ruido)
+        self.fm_canal_ruido = simular_ruido_canal(self.fm_mod, self.ruido_snr)
+        self.fm_rec_ruido = demodular_fm(self.fm_canal_ruido)
+
+        dur_s = len(self.voz) / FS
+        self.mascara = cargar_mascara_musical(duracion_s=dur_s + 2.0, fs=FS, ruta_wav="mascara_musical.wav")
+
+        self.btn_grabar_voz.config(text="🎤 Grabar Tu Voz (4s)", state=tk.NORMAL)
+        self.lbl_header_sub.config(
+            text=f"Audio activo: {origen} ({dur_s:.1f} s a 48 kHz) — ¡Listo para modular y enviar por UDP!",
+            fg=COLOR_REC if "Grabación" in origen else TEXT_MUTED
+        )
+        self._plot_f5_inicial()
+
+    def _on_voz_error(self, err):
+        self.btn_grabar_voz.config(text="🎤 Grabar Tu Voz (4s)", state=tk.NORMAL)
+        self.lbl_header_sub.config(text=f"Error de micrófono: {err}", fg="#f87171")
+
+    def _restaurar_voz_original(self):
+        voz = cargar_audio_voz()
+        self._on_voz_actualizada(voz, "audio_original.wav")
 
     def _configurar_toolbar(self, canvas, parent):
         toolbar = NavigationToolbar2Tk(canvas, parent)
