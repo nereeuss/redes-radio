@@ -31,8 +31,24 @@ from tkinter import ttk, messagebox
 import wave
 import threading
 import socket
+import struct
 import time
 import queue
+
+
+def obtener_ip_local():
+    """Detecta la dirección IP de la interfaz de red local (Wi-Fi o Ethernet)."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        try:
+            return socket.gethostbyname(socket.gethostname())
+        except Exception:
+            return "127.0.0.1"
 
 import matplotlib
 matplotlib.use("TkAgg")
@@ -228,6 +244,10 @@ class SDRModernApp(tk.Tk):
         self.hist_jitter = []
 
         # Variables de estado para Fase 5 (Integración AM/FM sobre UDP)
+        self.ip_local = obtener_ip_local()
+        self.f5_modo_red = tk.StringVar(value="LOCAL")
+        self.f5_ip_dest = tk.StringVar(value="192.168.1.")
+        self.f5_puerto = tk.IntVar(value=5018)
         self.f5_modo = tk.StringVar(value="FM")
         self.f5_fc = tk.DoubleVar(value=FC_FM_DEFAULT)
         self.f5_param = tk.DoubleVar(value=KF_DEFAULT)
@@ -260,10 +280,16 @@ class SDRModernApp(tk.Tk):
                     self._cancelar_transmision_live()
                 elif evento == "F5_PAQUETE":
                     self._notificar_f5_paquete(*datos)
+                elif evento == "F5_LOG":
+                    self._log_f5(*datos)
+                elif evento == "F5_TX_FIN":
+                    self._finalizar_f5_tx(*datos)
                 elif evento == "F5_FIN":
                     self._finalizar_f5(*datos)
                 elif evento == "F5_CANCEL":
                     self._cancelar_f5()
+                elif evento == "F5_ERROR":
+                    self._error_f5(*datos)
             except queue.Empty:
                 break
         self.after(20, self._verificar_cola_eventos)
@@ -1052,37 +1078,71 @@ class SDRModernApp(tk.Tk):
     # ────────────────────────────────────────────────────────────
     # PESTAÑA 5: INTEGRACIÓN AM/FM SOBRE UDP (FASE 5)
     # ────────────────────────────────────────────────────────────
+    def _get_f5_voiced_slice(self):
+        """Devuelve (inicio, fin) de una ventana de 40 ms donde realmente haya voz activa."""
+        n_win = min(len(self.voz), int(0.040 * FS))
+        if len(self.voz) <= n_win:
+            return 0, len(self.voz)
+        peak_idx = int(np.argmax(np.abs(self.voz)))
+        start = max(0, min(peak_idx - n_win // 3, len(self.voz) - n_win))
+        return start, start + n_win
+
     def _crear_tab_fase5(self):
         paned = tk.PanedWindow(self.tab_fase5, orient=tk.HORIZONTAL, bg=BG_DARK, bd=0, sashwidth=4)
         paned.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        izq = tk.Frame(paned, bg=BG_CARD, width=430, padx=14, pady=12)
-        paned.add(izq, minsize=410)
+        izq = tk.Frame(paned, bg=BG_CARD, width=445, padx=14, pady=10)
+        paned.add(izq, minsize=425)
 
-        tk.Label(izq, text="Fase 5: Integración Modulación + UDP", font=("Segoe UI", 12, "bold"),
+        tk.Label(izq, text="Fase 5: Radio AM/FM en Vivo por Red UDP", font=("Segoe UI", 12, "bold"),
                  fg=TEXT_WHITE, bg=BG_CARD).pack(anchor="w")
-        tk.Label(izq, text="Modulación en tiempo real bloque a bloque con propagación de fase, transmisión por datagramas UDP y demodulación automática.",
-                 font=("Segoe UI", 9), fg=TEXT_MUTED, bg=BG_CARD, wraplength=380, justify="left").pack(anchor="w", pady=(2, 8))
+        tk.Label(
+            izq,
+            text="Qué enseña esta pestaña: tu voz se modula (AM o FM) bloque a bloque, viaja por la red en paquetes UDP y el receptor la reconstruye al instante.",
+            font=("Segoe UI", 8), fg=TEXT_MUTED, bg=BG_CARD, wraplength=400, justify="left"
+        ).pack(anchor="w", pady=(2, 6))
 
-        # Tarjeta 1: Controles del Modulador SDR y Red
-        card_ctrl = tk.LabelFrame(izq, text=" ⚙️ CONFIGURACIÓN DEL MODULADOR SDR EN VIVO ",
-                                  font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg=COLOR_AM, bd=1, padx=10, pady=8)
-        card_ctrl.pack(fill=tk.X, pady=4)
+        # Tarjeta 0: Modo de Red (Local vs PC a PC)
+        card_red = tk.LabelFrame(izq, text=" 🌐 CONEXIÓN DE RED (1 PC o ENTRE 2 PCs) ",
+                                 font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg="#38bdf8", bd=1, padx=10, pady=6)
+        card_red.pack(fill=tk.X, pady=3)
+
+        f_roles = tk.Frame(card_red, bg=BG_CARD)
+        f_roles.pack(fill=tk.X)
+
+        for txt, val, col in [
+            ("💻 Bucle Local", "LOCAL", TEXT_WHITE),
+            ("📤 Emisor (A otro PC)", "EMISOR", "#fbbf24"),
+            ("📥 Receptor (De otro PC)", "RECEPTOR", COLOR_REC),
+        ]:
+            tk.Radiobutton(
+                f_roles, text=txt, variable=self.f5_modo_red, value=val,
+                command=self._on_f5_red_change, font=("Segoe UI", 8, "bold"),
+                fg=col, bg=BG_CARD, selectcolor=BG_DARK, activebackground=BG_CARD
+            ).pack(side=tk.LEFT, padx=(0, 6))
+
+        self.f5_net_info = tk.Frame(card_red, bg="#0f172a", padx=8, pady=5)
+        self.f5_net_info.pack(fill=tk.X, pady=(4, 0))
+
+        # Tarjeta 1: Controles del Modulador SDR
+        card_ctrl = tk.LabelFrame(izq, text=" ⚙️ CONFIGURACIÓN DE MODULACIÓN ",
+                                  font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg=COLOR_AM, bd=1, padx=10, pady=6)
+        card_ctrl.pack(fill=tk.X, pady=3)
 
         f_modos = tk.Frame(card_ctrl, bg=BG_CARD)
-        f_modos.pack(fill=tk.X, pady=(0, 6))
+        f_modos.pack(fill=tk.X, pady=(0, 4))
 
-        tk.Radiobutton(f_modos, text="📻 Modulación FM (Ángulo)", variable=self.f5_modo, value="FM",
+        tk.Radiobutton(f_modos, text="📻 FM (Frecuencia)", variable=self.f5_modo, value="FM",
                        command=self._on_f5_modo_change, font=("Segoe UI", 8, "bold"),
-                       fg=COLOR_FM, bg=BG_CARD, selectcolor=BG_DARK, activebackground=BG_CARD).pack(side=tk.LEFT, padx=(0, 10))
-        tk.Radiobutton(f_modos, text="📻 Modulación AM (Amplitud)", variable=self.f5_modo, value="AM",
+                       fg=COLOR_FM, bg=BG_CARD, selectcolor=BG_DARK, activebackground=BG_CARD).pack(side=tk.LEFT, padx=(0, 12))
+        tk.Radiobutton(f_modos, text="📻 AM (Amplitud)", variable=self.f5_modo, value="AM",
                        command=self._on_f5_modo_change, font=("Segoe UI", 8, "bold"),
                        fg=COLOR_AM, bg=BG_CARD, selectcolor=BG_DARK, activebackground=BG_CARD).pack(side=tk.LEFT)
 
         f_params = tk.Frame(card_ctrl, bg=BG_CARD)
         f_params.pack(fill=tk.X, pady=2)
 
-        tk.Label(f_params, text="Portadora fc:", font=("Segoe UI", 8), fg=TEXT_MUTED, bg=BG_CARD).pack(side=tk.LEFT)
+        tk.Label(f_params, text="Portadora fc (Hz):", font=("Segoe UI", 8), fg=TEXT_MUTED, bg=BG_CARD).pack(side=tk.LEFT)
         self.f5_fc_spin = ttk.Spinbox(f_params, from_=2000, to=18000, increment=500, textvariable=self.f5_fc, width=7)
         self.f5_fc_spin.pack(side=tk.LEFT, padx=(4, 10))
 
@@ -1092,9 +1152,9 @@ class SDRModernApp(tk.Tk):
         self.f5_param_spin.pack(side=tk.LEFT, padx=(4, 0))
 
         f_opt = tk.Frame(card_ctrl, bg=BG_CARD)
-        f_opt.pack(fill=tk.X, pady=4)
+        f_opt.pack(fill=tk.X, pady=3)
 
-        chk_perd = tk.Checkbutton(f_opt, text="⚠️ Prueba Robustez: Simular pérdida bloque #25 (PLC)",
+        chk_perd = tk.Checkbutton(f_opt, text="⚠️ Simular fallo de red (pierde paquete #25 para probar recuperación)",
                                   variable=self.f5_sim_perdida, font=("Segoe UI", 8),
                                   fg="#fbbf24", bg=BG_CARD, selectcolor=BG_DARK, activebackground=BG_CARD)
         chk_perd.pack(side=tk.LEFT)
@@ -1102,7 +1162,7 @@ class SDRModernApp(tk.Tk):
         f_btns = tk.Frame(card_ctrl, bg=BG_CARD)
         f_btns.pack(fill=tk.X, pady=(4, 0))
 
-        self.btn_f5_iniciar = ttk.Button(f_btns, text="🚀 Transmitir y Demodular UDP", style="Purple.TButton",
+        self.btn_f5_iniciar = ttk.Button(f_btns, text="🚀 Transmitir y Demodular (Local)", style="Purple.TButton",
                                          command=self._iniciar_f5)
         self.btn_f5_iniciar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
 
@@ -1111,23 +1171,23 @@ class SDRModernApp(tk.Tk):
         self.btn_f5_detener.pack(side=tk.RIGHT)
 
         # Tarjeta 2: Monitor de Terminal
-        card_feed = tk.LabelFrame(izq, text=" 📟 MONITOR DE DATAGRAMAS MODULADOS (SOCKET FEED) ",
-                                  font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg="#38bdf8", bd=1, padx=8, pady=6)
-        card_feed.pack(fill=tk.X, pady=4)
+        card_feed = tk.LabelFrame(izq, text=" 📟 REGISTRO DE PAQUETES UDP EN VIVO ",
+                                  font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg="#38bdf8", bd=1, padx=8, pady=5)
+        card_feed.pack(fill=tk.X, pady=3)
 
         self.f5_terminal = tk.Text(card_feed, height=5, bg=BG_TERMINAL, fg="#38bdf8",
                                    font=("Consolas", 8), bd=0, padx=6, pady=4, wrap=tk.NONE)
         self.f5_terminal.pack(fill=tk.BOTH, expand=True)
-        self.f5_terminal.insert(tk.END, "[SDR-F5] Listo para emitir señal modulada sobre UDP...\n")
+        self.f5_terminal.insert(tk.END, "[SDR-F5] Elige modo de red y pulsa el botón para iniciar...\n")
         self.f5_terminal.config(state=tk.DISABLED)
 
         # Tarjeta 3: Telemetría y Fidelidad
-        card_kpis = tk.LabelFrame(izq, text=" 📊 TELEMETRÍA Y FIDELIDAD ACÚSTICA (FASE 5) ",
-                                  font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg=COLOR_REC, bd=1, padx=8, pady=6)
-        card_kpis.pack(fill=tk.X, pady=4)
+        card_kpis = tk.LabelFrame(izq, text=" 📊 RESULTADOS DE LA TRANSMISIÓN ",
+                                  font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg=COLOR_REC, bd=1, padx=8, pady=5)
+        card_kpis.pack(fill=tk.X, pady=3)
 
         self.f5_prog = ttk.Progressbar(card_kpis, orient=tk.HORIZONTAL, mode="determinate")
-        self.f5_prog.pack(fill=tk.X, pady=(0, 6))
+        self.f5_prog.pack(fill=tk.X, pady=(0, 5))
 
         f_grid = tk.Frame(card_kpis, bg=BG_CARD)
         f_grid.pack(fill=tk.X)
@@ -1137,7 +1197,7 @@ class SDRModernApp(tk.Tk):
             ("BLOQUES", "lbl_f5_kpi_pkts"),
             ("PÉRDIDAS", "lbl_f5_kpi_perd"),
             ("JITTER", "lbl_f5_kpi_jit"),
-            ("SNR FINAL", "lbl_f5_kpi_snr")
+            ("CALIDAD SNR", "lbl_f5_kpi_snr")
         ]):
             box = tk.Frame(f_grid, bg="#0f172a", padx=4, pady=4)
             box.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
@@ -1147,24 +1207,26 @@ class SDRModernApp(tk.Tk):
             setattr(self, attr, lbl)
 
         # Tarjeta 4: Escucha y Verificación
-        card_audio = tk.LabelFrame(izq, text=" 🔊 VERIFICACIÓN AUDITIVA (FASE 5) ",
-                                   font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg="#f59e0b", bd=1, padx=8, pady=6)
-        card_audio.pack(fill=tk.X, pady=4)
+        card_audio = tk.LabelFrame(izq, text=" 🔊 ESCUCHAR RESULTADO ",
+                                   font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg="#f59e0b", bd=1, padx=8, pady=5)
+        card_audio.pack(fill=tk.X, pady=3)
 
         f_play_btns = tk.Frame(card_audio, bg=BG_CARD)
         f_play_btns.pack(fill=tk.X)
 
-        self.btn_f5_play_orig = ttk.Button(f_play_btns, text="🎵 Voz Original", style="Blue.TButton",
+        self.btn_f5_play_orig = ttk.Button(f_play_btns, text="🎵 1. Voz Original", style="Blue.TButton",
                                            command=self._reproducir_f5_orig)
         self.btn_f5_play_orig.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
 
-        self.btn_f5_play_mod = ttk.Button(f_play_btns, text="📻 Modulada", style="Pink.TButton",
+        self.btn_f5_play_mod = ttk.Button(f_play_btns, text="📻 2. Señal en Red", style="Pink.TButton",
                                           command=self._reproducir_f5_mod, state=tk.DISABLED)
         self.btn_f5_play_mod.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
 
-        self.btn_f5_play_rec = ttk.Button(f_play_btns, text="✅ Demodulada", style="Green.TButton",
+        self.btn_f5_play_rec = ttk.Button(f_play_btns, text="✅ 3. Voz Recuperada", style="Green.TButton",
                                           command=self._reproducir_f5_rec, state=tk.DISABLED)
         self.btn_f5_play_rec.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        self._on_f5_red_change()
 
         # Panel Derecho: Canvas Matplotlib (3 subplots)
         der = tk.Frame(paned, bg=BG_CARD)
@@ -1176,6 +1238,31 @@ class SDRModernApp(tk.Tk):
         self._configurar_toolbar(self.canvas_f5, der)
 
         self._plot_f5_inicial()
+
+    def _on_f5_red_change(self):
+        for w in self.f5_net_info.winfo_children():
+            w.destroy()
+        rol = self.f5_modo_red.get()
+        if rol == "LOCAL":
+            tk.Label(self.f5_net_info, text="💻 Bucle local en este PC (127.0.0.1:5018). Ideal para probar solo.",
+                     font=("Segoe UI", 8), fg=TEXT_MUTED, bg="#0f172a").pack(anchor="w")
+            self.btn_f5_iniciar.config(text="🚀 Transmitir y Demodular (Local)")
+        elif rol == "EMISOR":
+            f_row = tk.Frame(self.f5_net_info, bg="#0f172a")
+            f_row.pack(fill=tk.X)
+            tk.Label(f_row, text="IP Destino:", font=("Segoe UI", 8, "bold"), fg="#fbbf24", bg="#0f172a").pack(side=tk.LEFT)
+            ttk.Entry(f_row, textvariable=self.f5_ip_dest, width=16).pack(side=tk.LEFT, padx=(4, 10))
+            tk.Label(f_row, text="Puerto:", font=("Segoe UI", 8), fg=TEXT_MUTED, bg="#0f172a").pack(side=tk.LEFT)
+            ttk.Entry(f_row, textvariable=self.f5_puerto, width=6).pack(side=tk.LEFT, padx=(4, 0))
+            self.btn_f5_iniciar.config(text="📤 Enviar Audio a IP Destino")
+        else:
+            tk.Label(self.f5_net_info,
+                     text=f"📡 TU IP LOCAL ES: {self.ip_local}  |  PUERTO: {self.f5_puerto.get()}",
+                     font=("Segoe UI", 8, "bold"), fg=COLOR_REC, bg="#0f172a").pack(anchor="w")
+            tk.Label(self.f5_net_info,
+                     text="Dile a tu compañera que escriba esta IP en su modo Emisor.",
+                     font=("Segoe UI", 7), fg=TEXT_MUTED, bg="#0f172a").pack(anchor="w")
+            self.btn_f5_iniciar.config(text="👂 Ponerse a la Escucha en la Red")
 
     def _plot_f5_inicial(self):
         self.fig_f5.clf()
@@ -1190,34 +1277,40 @@ class SDRModernApp(tk.Tk):
                 spine.set_color("#334155")
 
         modo = self.f5_modo.get().upper()
-        col = COLOR_FM if modo == "FM" else COLOR_AM
+        fc = self.f5_fc.get()
 
-        # Subplot 1: Tiempo inicial
-        n_p = min(len(self.voz), int(0.040 * FS))
-        t_ms = np.arange(n_p) / FS * 1000
-        self.ax_f5_tiempo.plot(t_ms, self.voz[:n_p], color=COLOR_VOZ, alpha=0.7, lw=1.2, label="Voz Original")
-        self.ax_f5_tiempo.set_title("1. Comparativa Temporal: Voz Original vs Señal Demodulada Recuperada",
+        # Subplot 1: Ventana con voz activa (no silencio inicial)
+        i0, i1 = self._get_f5_voiced_slice()
+        t_ms = (np.arange(i0, i1) / FS) * 1000
+        self.ax_f5_tiempo.plot(t_ms, self.voz[i0:i1], color=COLOR_VOZ, alpha=0.85, lw=1.2, label="Voz Original")
+        self.ax_f5_tiempo.set_title("1. Forma de Onda: Voz Original vs Voz Recuperada tras viajar por UDP",
                                     fontsize=9, fontweight="bold", color=TEXT_WHITE)
         self.ax_f5_tiempo.set_xlabel("Tiempo (ms)", color=TEXT_MUTED, fontsize=8)
         self.ax_f5_tiempo.set_ylabel("Amplitud", color=TEXT_MUTED, fontsize=8)
-        self.ax_f5_tiempo.set_ylim(-1.2, 1.2)
+        self.ax_f5_tiempo.set_ylim(-1.15, 1.15)
         self.ax_f5_tiempo.grid(True, color="#1e293b", linestyle="--", alpha=0.7)
         self.ax_f5_tiempo.legend(loc="upper right", facecolor=BG_CARD, edgecolor="#334155", labelcolor=TEXT_WHITE, fontsize=7)
 
         # Subplot 2: Espectro modulado
-        self.ax_f5_espectro_mod.set_title(f"2. Espectro FFT de la Señal {modo} Modulada en Tránsito por la Red",
+        self.ax_f5_espectro_mod.set_title(f"2. Señal {modo} en la Red UDP (Portadora en {fc/1000:.1f} kHz)",
                                           fontsize=9, fontweight="bold", color=TEXT_WHITE)
         self.ax_f5_espectro_mod.set_xlabel("Frecuencia (kHz)", color=TEXT_MUTED, fontsize=8)
         self.ax_f5_espectro_mod.set_ylabel("Magnitud (dB)", color=TEXT_MUTED, fontsize=8)
         self.ax_f5_espectro_mod.set_xlim(0, 24)
+        self.ax_f5_espectro_mod.set_ylim(-100, 0)
+        self.ax_f5_espectro_mod.text(12, -50, "Pulsa el botón para transmitir y ver el espectro modulado en la red",
+                                     color=TEXT_MUTED, fontsize=8, ha="center", va="center")
         self.ax_f5_espectro_mod.grid(True, color="#1e293b", linestyle="--", alpha=0.7)
 
         # Subplot 3: Espectro recuperado
-        self.ax_f5_espectro_rec.set_title("3. Espectro FFT de la Voz Demodulada Recuperada tras el Filtro Paso-Bajo",
+        self.ax_f5_espectro_rec.set_title("3. Voz Demodulada en el Receptor (Espectro 0 - 8 kHz)",
                                           fontsize=9, fontweight="bold", color=TEXT_WHITE)
         self.ax_f5_espectro_rec.set_xlabel("Frecuencia (kHz)", color=TEXT_MUTED, fontsize=8)
         self.ax_f5_espectro_rec.set_ylabel("Magnitud (dB)", color=TEXT_MUTED, fontsize=8)
         self.ax_f5_espectro_rec.set_xlim(0, 8)
+        self.ax_f5_espectro_rec.set_ylim(-100, 0)
+        self.ax_f5_espectro_rec.text(4, -50, "Aquí aparecerá la voz limpia extraída tras demodular",
+                                     color=TEXT_MUTED, fontsize=8, ha="center", va="center")
         self.ax_f5_espectro_rec.grid(True, color="#1e293b", linestyle="--", alpha=0.7)
 
         self.fig_f5.tight_layout()
@@ -1250,11 +1343,22 @@ class SDRModernApp(tk.Tk):
 
         self.f5_terminal.config(state=tk.NORMAL)
         self.f5_terminal.delete("1.0", tk.END)
+        rol = self.f5_modo_red.get()
         modo = self.f5_modo.get().upper()
         fc = self.f5_fc.get()
         param = self.f5_param.get()
         p_name = "ka" if modo == "AM" else "kf"
-        self.f5_terminal.insert(tk.END, f"[F5-INIT] Iniciando cadena {modo} sobre UDP | fc={fc:.0f} Hz | {p_name}={param}\n")
+
+        if rol == "LOCAL":
+            self.f5_terminal.insert(tk.END, f"[F5-LOCAL] Iniciando bucle {modo} | fc={fc:.0f} Hz | {p_name}={param}\n")
+        elif rol == "EMISOR":
+            ip_d = self.f5_ip_dest.get().strip()
+            puerto = int(self.f5_puerto.get())
+            self.f5_terminal.insert(tk.END, f"[F5-EMISOR] Enviando {modo} hacia {ip_d}:{puerto} | fc={fc:.0f} Hz\n")
+        else:
+            puerto = int(self.f5_puerto.get())
+            self.f5_terminal.insert(tk.END, f"[F5-RECEPTOR] Escuchando en 0.0.0.0:{puerto} (Tu IP: {self.ip_local})\n")
+            self.f5_terminal.insert(tk.END, f"              Esperando paquetes de tu compañera... (Pulsa Detener para cancelar)\n")
         self.f5_terminal.config(state=tk.DISABLED)
 
         self.f5_hist_seqs.clear()
@@ -1264,147 +1368,273 @@ class SDRModernApp(tk.Tk):
 
         self._plot_f5_inicial()
 
-        threading.Thread(target=self._hilo_f5, daemon=True).start()
+        cfg = {
+            "rol": rol,
+            "modo": modo,
+            "fc": float(fc),
+            "param": float(param),
+            "sim_perdida": bool(self.f5_sim_perdida.get()),
+            "tam_bloque": int(self.f5_tam_bloque.get()),
+            "puerto": int(self.f5_puerto.get()),
+            "ip_dest": self.f5_ip_dest.get().strip(),
+        }
+        threading.Thread(target=self._hilo_f5, args=(cfg,), daemon=True).start()
 
     def _detener_f5(self):
         if self.f5_en_curso:
             self.f5_detener_flag = True
+            self._log_f5("[F5] Deteniendo...")
 
-    def _hilo_f5(self):
-        modo = self.f5_modo.get().upper()
-        fc = float(self.f5_fc.get())
-        param = float(self.f5_param.get())
-        sim_perdida = self.f5_sim_perdida.get()
-        tam_bloque = int(self.f5_tam_bloque.get())
-
-        puerto = 5018
-        sock_rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock_rx.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            sock_rx.bind(('127.0.0.1', puerto))
-        except Exception:
-            puerto = 5019
-            sock_rx.bind(('127.0.0.1', puerto))
-        sock_rx.settimeout(0.3)
-
-        sock_tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-        bloques = [self.voz[i:i + tam_bloque] for i in range(0, len(self.voz), tam_bloque)]
-        total_bloques = len(bloques)
-        cadencia = tam_bloque / FS
-
-        estado_fm = EstadoFM()
-        offset_am_tx = 0
-        offset_am_rx = 0
-
-        paquetes_modulados = []
-        bloques_recibidos = {}
-        jitter = 0.0
-        prev_rx = 0.0
-        prev_tx = 0.0
-
-        for idx, bloque in enumerate(bloques):
-            if self.f5_detener_flag:
-                break
-
-            seq = idx + 1
-            t_tx = time.time()
-
-            # Modulación en tiempo real
-            if modo == "AM":
-                bloque_mod, offset_am_tx = modular_am_bloque(
-                    bloque, fc=fc, ka=param, fs=FS, sample_offset=offset_am_tx
-                )
-            else:
-                bloque_mod, estado_fm = modular_fm_bloque(
-                    bloque, fc=fc, kf=param, fs=FS, estado=estado_fm
-                )
-
-            paquetes_modulados.append(bloque_mod)
-            payload = serializar_bloque(bloque_mod)
-
-            # Prueba de descarte voluntario
-            if sim_perdida and seq == 25:
-                time.sleep(0.001)
-                continue
-
-            # Empaquetar y enviar
-            datagrama = struct.pack("!4sIdBH", b"SDR5", seq, t_tx, 1 if modo == "FM" else 0, len(payload)) + payload
-            sock_tx.sendto(datagrama, ('127.0.0.1', puerto))
-
-            # Recepción local
-            try:
-                data, addr = sock_rx.recvfrom(4096)
-                t_rx = time.time()
-                mag, s_num, ts, m_code, pay_len = struct.unpack("!4sIdBH", data[:19])
-                pay_data = data[19:19 + pay_len]
-                m_rx = deserializar_bloque(pay_data)
-
-                # Cálculo de retardo y jitter RFC 3550
-                retardo_ms = max(0.02, (t_rx - ts) * 1000.0)
-                if prev_rx > 0 and ts > 0:
-                    d = abs((t_rx - prev_rx) - (ts - prev_tx))
-                    jitter += (d - jitter) / 16.0
-                prev_rx = t_rx
-                prev_tx = ts
-
-                bloques_recibidos[s_num] = m_rx
-
-                act = (seq % 10 == 0) or (seq == total_bloques)
-                self.cola_eventos.put(("F5_PAQUETE", (
-                    seq, total_bloques, modo, retardo_ms, jitter * 1000.0, len(data), act
-                )))
-            except socket.timeout:
-                pass
-
-            time.sleep(0.001)
-
-        sock_tx.close()
-        sock_rx.close()
-
-        if bloques_recibidos and not self.f5_detener_flag:
-            seq_min = min(bloques_recibidos.keys())
-            seq_max = max(bloques_recibidos.keys())
-            total_esp = seq_max - seq_min + 1
-            audio_demodulado_partes = []
-
-            for s in range(seq_min, seq_max + 1):
-                if s in bloques_recibidos:
-                    b_rx = bloques_recibidos[s]
-                else:
-                    # PLC: atenuación / repetición
-                    b_rx = audio_demodulado_partes[-1] * 0.5 if audio_demodulado_partes else np.zeros(tam_bloque, dtype=np.float32)
-
-                if modo == "AM":
-                    b_dem, offset_am_rx = demodular_am_bloque(b_rx, fc=fc, ka=param, fs=FS, sample_offset=offset_am_rx)
-                else:
-                    b_dem = demodular_fm_bloque(b_rx, fc=fc, kf=param, fs=FS)
-                audio_demodulado_partes.append(b_dem)
-
-            audio_recuperado = np.concatenate(audio_demodulado_partes)
-            señal_modulada = np.concatenate(paquetes_modulados)
-            snr_info = calcular_snr(self.voz, audio_recuperado)
-
-            metricas = {
-                "esperados": total_esp,
-                "recibidos": len(bloques_recibidos),
-                "perdidos": total_esp - len(bloques_recibidos),
-                "jitter_ms": jitter * 1000.0,
-                "snr_db": snr_info["SNR_dB"]
-            }
-            self.cola_eventos.put(("F5_FIN", (señal_modulada, audio_recuperado, metricas)))
-        else:
-            self.cola_eventos.put(("F5_CANCEL", ()))
-
-    def _notificar_f5_paquete(self, num_pkt, total_pkts, modo, retardo_ms, jitter_ms, tam_bytes, act):
-        pct = (num_pkt / total_pkts) * 100
-        self.f5_prog["value"] = pct
-
-        msg = f"[RX-{modo}] #{num_pkt:03d}/{total_pkts} | {tam_bytes}B | Ret:{retardo_ms:.2f}ms | Jit:{jitter_ms:.2f}ms | OK\n"
+    def _log_f5(self, texto):
         self.f5_terminal.config(state=tk.NORMAL)
-        self.f5_terminal.insert(tk.END, msg)
+        self.f5_terminal.insert(tk.END, texto + "\n")
         self.f5_terminal.see(tk.END)
         self.f5_terminal.config(state=tk.DISABLED)
+
+    def _error_f5(self, err_msg):
+        self.f5_en_curso = False
+        self.btn_f5_iniciar.config(state=tk.NORMAL)
+        self.btn_f5_detener.config(state=tk.DISABLED)
+        self._log_f5(f"[ERROR] {err_msg}")
+
+    def _finalizar_f5_tx(self, total_pkts, ip_dest, puerto):
+        self.f5_en_curso = False
+        self.btn_f5_iniciar.config(state=tk.NORMAL)
+        self.btn_f5_detener.config(state=tk.DISABLED)
+        self.btn_f5_play_mod.config(state=tk.NORMAL)
+        self._log_f5(f"[F5-EMISOR] ¡Envío completado! {total_pkts} bloques enviados a {ip_dest}:{puerto}.")
+
+    def _hilo_f5(self, cfg):
+        HDR_FMT = "!4sIIdBffH"
+        HDR_SIZE = struct.calcsize(HDR_FMT)  # 31 bytes
+
+        sock_tx = None
+        sock_rx = None
+
+        try:
+            rol = cfg["rol"]
+            modo = cfg["modo"]
+            fc = cfg["fc"]
+            param = cfg["param"]
+            sim_perdida = cfg["sim_perdida"]
+            tam_bloque = cfg["tam_bloque"]
+            puerto = cfg["puerto"]
+
+            bloques = [self.voz[i:i + tam_bloque] for i in range(0, len(self.voz), tam_bloque)]
+            total_bloques = len(bloques)
+
+            estado_fm = EstadoFM()
+            offset_am_tx = 0
+            offset_am_rx = 0
+
+            paquetes_modulados = []
+            bloques_recibidos = {}
+            jitter = 0.0
+            prev_rx = 0.0
+            prev_tx = 0.0
+
+            if rol in ("LOCAL", "RECEPTOR"):
+                sock_rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock_rx.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                bind_ip = "127.0.0.1" if rol == "LOCAL" else "0.0.0.0"
+                try:
+                    sock_rx.bind((bind_ip, puerto))
+                except Exception:
+                    puerto = puerto + 1
+                    sock_rx.bind((bind_ip, puerto))
+                sock_rx.settimeout(0.25)
+
+            if rol in ("LOCAL", "EMISOR"):
+                sock_tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                ip_dest = "127.0.0.1" if rol == "LOCAL" else cfg["ip_dest"]
+
+                for idx, bloque in enumerate(bloques):
+                    if self.f5_detener_flag:
+                        break
+
+                    seq = idx + 1
+                    t_tx = time.time()
+
+                    if modo == "AM":
+                        bloque_mod, offset_am_tx = modular_am_bloque(
+                            bloque, fc=fc, ka=param, fs=FS, sample_offset=offset_am_tx
+                        )
+                    else:
+                        bloque_mod, estado_fm = modular_fm_bloque(
+                            bloque, fc=fc, kf=param, fs=FS, estado=estado_fm
+                        )
+
+                    paquetes_modulados.append(bloque_mod)
+                    payload = serializar_bloque(bloque_mod)
+
+                    # Prueba de descarte voluntario
+                    if sim_perdida and seq == 25:
+                        time.sleep(0.002)
+                        continue
+
+                    m_code = 1 if modo == "FM" else 0
+                    datagrama = struct.pack(
+                        HDR_FMT, b"SDR5", seq, total_bloques, t_tx, m_code, fc, param, len(payload)
+                    ) + payload
+                    sock_tx.sendto(datagrama, (ip_dest, puerto))
+
+                    if rol == "LOCAL":
+                        try:
+                            data, addr = sock_rx.recvfrom(4096)
+                            t_rx = time.time()
+                            mag, s_num, t_tot, ts, mc, f_c, p_val, pay_len = struct.unpack(HDR_FMT, data[:HDR_SIZE])
+                            m_rx = deserializar_bloque(data[HDR_SIZE:HDR_SIZE + pay_len])
+
+                            retardo_ms = max(0.02, (t_rx - ts) * 1000.0)
+                            if prev_rx > 0 and ts > 0:
+                                d = abs((t_rx - prev_rx) - (ts - prev_tx))
+                                jitter += (d - jitter) / 16.0
+                            prev_rx = t_rx
+                            prev_tx = ts
+
+                            bloques_recibidos[s_num] = m_rx
+                            log_line = (seq == 1) or (seq % 25 == 0) or (seq == total_bloques)
+                            self.cola_eventos.put(("F5_PAQUETE", (
+                                seq, total_bloques, modo, retardo_ms, jitter * 1000.0, len(data), log_line
+                            )))
+                        except socket.timeout:
+                            pass
+                        time.sleep(0.002)
+                    else:
+                        # Modo EMISOR hacia otro PC
+                        log_line = (seq == 1) or (seq % 25 == 0) or (seq == total_bloques)
+                        self.cola_eventos.put(("F5_PAQUETE", (
+                            seq, total_bloques, modo, 0.0, 0.0, len(datagrama), log_line
+                        )))
+                        time.sleep(0.004)
+
+                # Enviar marcador de fin en modo EMISOR
+                if rol == "EMISOR" and not self.f5_detener_flag:
+                    eof_pkt = struct.pack(HDR_FMT, b"SDR5", 0, total_bloques, time.time(), 99, fc, param, 0)
+                    for _ in range(3):
+                        sock_tx.sendto(eof_pkt, (ip_dest, puerto))
+                        time.sleep(0.02)
+                    self.f5_audio_modulado = np.concatenate(paquetes_modulados) if paquetes_modulados else None
+                    self.cola_eventos.put(("F5_TX_FIN", (total_bloques, ip_dest, puerto)))
+                    return
+
+            elif rol == "RECEPTOR":
+                ultimo_paquete_t = None
+                total_esp_rx = total_bloques
+                modo_rx = modo
+                fc_rx = fc
+                param_rx = param
+
+                while not self.f5_detener_flag:
+                    try:
+                        data, addr = sock_rx.recvfrom(4096)
+                        if len(data) < HDR_SIZE:
+                            continue
+                        mag, s_num, t_tot, ts, mc, f_c, p_val, pay_len = struct.unpack(HDR_FMT, data[:HDR_SIZE])
+                        if mag != b"SDR5":
+                            continue
+                        if mc == 99:
+                            # Fin de transmisión
+                            break
+
+                        t_rx = time.time()
+                        m_rx = deserializar_bloque(data[HDR_SIZE:HDR_SIZE + pay_len])
+                        modo_rx = "FM" if mc == 1 else "AM"
+                        fc_rx = f_c
+                        param_rx = p_val
+                        total_esp_rx = t_tot
+
+                        if ultimo_paquete_t is None:
+                            self.cola_eventos.put(("F5_LOG", (f"[RX] ¡Recibiendo flujo {modo_rx} desde {addr[0]}:{addr[1]}!",)))
+                        ultimo_paquete_t = t_rx
+
+                        retardo_ms = max(0.02, abs(t_rx - ts) * 1000.0)
+                        if retardo_ms > 5000:
+                            retardo_ms = 1.5  # relojes no sincronizados entre PCs
+                        if prev_rx > 0 and ts > 0:
+                            d = abs((t_rx - prev_rx) - (ts - prev_tx))
+                            jitter += (d - jitter) / 16.0
+                        prev_rx = t_rx
+                        prev_tx = ts
+
+                        bloques_recibidos[s_num] = m_rx
+                        paquetes_modulados.append(m_rx)
+                        n_rx = len(bloques_recibidos)
+                        log_line = (n_rx == 1) or (n_rx % 25 == 0) or (s_num == total_esp_rx)
+                        self.cola_eventos.put(("F5_PAQUETE", (
+                            s_num, total_esp_rx, modo_rx, retardo_ms, jitter * 1000.0, len(data), log_line
+                        )))
+                    except socket.timeout:
+                        if ultimo_paquete_t is not None and (time.time() - ultimo_paquete_t) > 1.8:
+                            break
+                        continue
+
+                modo = modo_rx
+                fc = fc_rx
+                param = param_rx
+
+            if self.f5_detener_flag:
+                self.cola_eventos.put(("F5_CANCEL", ()))
+                return
+
+            if bloques_recibidos:
+                seq_min = min(bloques_recibidos.keys())
+                seq_max = max(bloques_recibidos.keys())
+                total_esp = seq_max - seq_min + 1
+                audio_demodulado_partes = []
+
+                for s in range(seq_min, seq_max + 1):
+                    if s in bloques_recibidos:
+                        b_rx = bloques_recibidos[s]
+                    else:
+                        b_rx = audio_demodulado_partes[-1] * 0.5 if audio_demodulado_partes else np.zeros(tam_bloque, dtype=np.float32)
+
+                    if modo == "AM":
+                        b_dem, offset_am_rx = demodular_am_bloque(b_rx, fc=fc, ka=param, fs=FS, sample_offset=offset_am_rx)
+                    else:
+                        b_dem = demodular_fm_bloque(b_rx, fc=fc, kf=param, fs=FS)
+                    audio_demodulado_partes.append(b_dem)
+
+                audio_recuperado = np.concatenate(audio_demodulado_partes)
+                señal_modulada = np.concatenate(paquetes_modulados)
+                snr_info = calcular_snr(self.voz, audio_recuperado)
+
+                metricas = {
+                    "modo": modo,
+                    "esperados": total_esp,
+                    "recibidos": len(bloques_recibidos),
+                    "perdidos": total_esp - len(bloques_recibidos),
+                    "jitter_ms": jitter * 1000.0,
+                    "snr_db": snr_info["SNR_dB"]
+                }
+                self.cola_eventos.put(("F5_FIN", (señal_modulada, audio_recuperado, metricas)))
+            else:
+                self.cola_eventos.put(("F5_CANCEL", ()))
+
+        except Exception as e:
+            self.cola_eventos.put(("F5_ERROR", (f"{type(e).__name__}: {e}",)))
+        finally:
+            if sock_tx is not None:
+                try:
+                    sock_tx.close()
+                except Exception:
+                    pass
+            if sock_rx is not None:
+                try:
+                    sock_rx.close()
+                except Exception:
+                    pass
+
+    def _notificar_f5_paquete(self, num_pkt, total_pkts, modo, retardo_ms, jitter_ms, tam_bytes, log_line):
+        pct = min(100.0, (num_pkt / max(1, total_pkts)) * 100)
+        self.f5_prog["value"] = pct
+
+        if log_line:
+            msg = f"[{modo}] #{num_pkt:03d}/{total_pkts} | {tam_bytes}B | Ret:{retardo_ms:.2f}ms | Jit:{jitter_ms:.2f}ms\n"
+            self.f5_terminal.config(state=tk.NORMAL)
+            self.f5_terminal.insert(tk.END, msg)
+            self.f5_terminal.see(tk.END)
+            self.f5_terminal.config(state=tk.DISABLED)
 
         self.lbl_f5_kpi_modo.config(text=modo, fg=COLOR_FM if modo == "FM" else COLOR_AM)
         self.lbl_f5_kpi_pkts.config(text=f"{num_pkt}/{total_pkts} ({pct:.0f}%)")
@@ -1421,7 +1651,7 @@ class SDRModernApp(tk.Tk):
         self.f5_audio_modulado = señal_modulada
         self.f5_audio_recuperado = audio_recuperado
 
-        modo = self.f5_modo.get().upper()
+        modo = metricas.get("modo", self.f5_modo.get().upper())
         col = COLOR_FM if modo == "FM" else COLOR_AM
         perd = metricas["perdidos"]
         snr_db = metricas["snr_db"]
@@ -1433,11 +1663,11 @@ class SDRModernApp(tk.Tk):
         self.lbl_f5_kpi_snr.config(text=f"{snr_db:+.1f} dB", fg=COLOR_REC if snr_db > 5 else "#fbbf24")
 
         self.f5_terminal.config(state=tk.NORMAL)
-        self.f5_terminal.insert(tk.END, f"[F5-ÉXITO] Transmisión y demodulación completada. SNR: {snr_db:+.1f} dB\n")
+        self.f5_terminal.insert(tk.END, f"[F5-ÉXITO] Completado ({metricas['recibidos']}/{metricas['esperados']} bloques). SNR: {snr_db:+.1f} dB\n")
         self.f5_terminal.see(tk.END)
         self.f5_terminal.config(state=tk.DISABLED)
 
-        # Actualizar gráficas completas
+        # Actualizar gráficas completas usando ventana de voz activa
         self.fig_f5.clf()
         ax1 = self.fig_f5.add_subplot(3, 1, 1)
         ax2 = self.fig_f5.add_subplot(3, 1, 2)
@@ -1449,16 +1679,17 @@ class SDRModernApp(tk.Tk):
             for spine in ax.spines.values():
                 spine.set_color("#334155")
 
-        # 1. Comparativa temporal
-        n_p = min(len(self.voz), len(audio_recuperado), int(0.040 * FS))
-        t_ms = np.arange(n_p) / FS * 1000
-        ax1.plot(t_ms, self.voz[:n_p], color=COLOR_VOZ, alpha=0.5, lw=1.5, label="Voz Original")
-        ax1.plot(t_ms, audio_recuperado[:n_p], color=COLOR_REC, lw=1.1, label=f"Voz {modo} Recuperada (SNR {snr_db:+.1f} dB)")
-        ax1.set_title(f"1. Forma de Onda Temporal — Original vs {modo} Demodulada por Red UDP",
+        # 1. Comparativa temporal en ventana con voz activa
+        i0, i1 = self._get_f5_voiced_slice()
+        i1 = min(i1, len(audio_recuperado))
+        t_ms = (np.arange(i0, i1) / FS) * 1000
+        ax1.plot(t_ms, self.voz[i0:i1], color=COLOR_VOZ, alpha=0.55, lw=1.6, label="Voz Original")
+        ax1.plot(t_ms, audio_recuperado[i0:i1], color=COLOR_REC, lw=1.1, label=f"Voz {modo} Recuperada (SNR {snr_db:+.1f} dB)")
+        ax1.set_title(f"1. Forma de Onda: Voz Original vs {modo} Recuperada por Red UDP",
                       fontsize=9, fontweight="bold", color=TEXT_WHITE)
         ax1.set_xlabel("Tiempo (ms)", color=TEXT_MUTED, fontsize=8)
         ax1.set_ylabel("Amplitud", color=TEXT_MUTED, fontsize=8)
-        ax1.set_ylim(-1.2, 1.2)
+        ax1.set_ylim(-1.15, 1.15)
         ax1.grid(True, color="#1e293b", linestyle="--", alpha=0.7)
         ax1.legend(loc="upper right", facecolor=BG_CARD, edgecolor="#334155", labelcolor=TEXT_WHITE, fontsize=7)
 
@@ -1496,7 +1727,8 @@ class SDRModernApp(tk.Tk):
         self.btn_f5_iniciar.config(state=tk.NORMAL)
         self.btn_f5_detener.config(state=tk.DISABLED)
         self.f5_terminal.config(state=tk.NORMAL)
-        self.f5_terminal.insert(tk.END, "[F5-DETENIDO] Proceso cancelado por el usuario.\n")
+        self.f5_terminal.insert(tk.END, "[F5-DETENIDO] Proceso detenido.\n")
+        self.f5_terminal.see(tk.END)
         self.f5_terminal.config(state=tk.DISABLED)
 
     def _reproducir_f5_orig(self):
