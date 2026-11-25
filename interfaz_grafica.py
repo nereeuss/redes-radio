@@ -199,7 +199,11 @@ def modular_fm(señal):
 
 
 def demodular_fm(s_fm):
-    analitica = hilbert(s_fm)
+    # Filtro paso-banda IF (regla de Carson alrededor de fc = 8 kHz) para eliminar ruido fuera de banda
+    b_bp, a_bp = butter(4, [2000.0 / (FS / 2), 15000.0 / (FS / 2)], btype='band')
+    s_fm_filt = filtfilt(b_bp, a_bp, s_fm)
+
+    analitica = hilbert(s_fm_filt)
     fase_inst = np.unwrap(np.angle(analitica))
     freq_inst = np.diff(fase_inst) * FS / (2 * np.pi)
     demod = (freq_inst - FC) / KF
@@ -208,11 +212,7 @@ def demodular_fm(s_fm):
     b, a = butter(4, CORTE_FM / (FS / 2), btype='low')
     demod = filtfilt(b, a, demod)
     demod -= np.mean(demod)
-
-    umbral = np.percentile(np.abs(demod), 99.8)
-    if umbral > 0:
-        demod = np.clip(demod / umbral * 0.95, -0.95, 0.95)
-    return demod.astype(np.float32)
+    return np.clip(demod, -0.95, 0.95).astype(np.float32)
 
 
 def simular_ruido_canal(señal, snr_db=18.0):
