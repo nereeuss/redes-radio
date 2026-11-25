@@ -35,6 +35,14 @@ import struct
 import time
 import queue
 
+# Activar nitidez HD (HiDPI) en Windows para evitar texto y gráficas borrosas
+if sys.platform == "win32":
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+
 
 def obtener_ip_local():
     """Detecta la dirección IP de la interfaz de red local (Wi-Fi o Ethernet)."""
@@ -52,6 +60,10 @@ def obtener_ip_local():
 
 import matplotlib
 matplotlib.use("TkAgg")
+matplotlib.rcParams["font.family"] = "sans-serif"
+matplotlib.rcParams["font.sans-serif"] = ["Segoe UI", "DejaVu Sans", "Arial"]
+matplotlib.rcParams["axes.edgecolor"] = "#24324d"
+matplotlib.rcParams["axes.linewidth"] = 0.8
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 
@@ -92,21 +104,23 @@ KF = 3_500.0       # Desviación FM (3.5 kHz para auténtica ventaja FM)
 CORTE_LP = 3_800.0 # Filtro paso-bajo voz general
 CORTE_FM = 3_200.0 # Filtro desénfasis FM (elimina siseo triangular de alta frecuencia)
 
-# Paleta de colores Dark Slate moderna
-BG_DARK = "#0f172a"       # Slate 900
-BG_CARD = "#1e293b"       # Slate 800
-BG_CARD_HOVER = "#334155" # Slate 700
-BG_TERMINAL = "#090d16"   # Slate 950 deep
-TEXT_WHITE = "#f8fafc"    # Slate 50
-TEXT_MUTED = "#94a3b8"    # Slate 400
-COLOR_VOZ = "#38bdf8"     # Sky blue
-COLOR_AM = "#f59e0b"      # Amber orange
-COLOR_FM = "#f43f5e"      # Rose red
-COLOR_REC = "#10b981"     # Emerald green
-COLOR_ALERT = "#ef4444"   # Red alert
-COLOR_PURPLE = "#a855f7"  # Purple accent
-COLOR_CYAN = "#06b6d4"    # Cyan
-COLOR_PINK = "#ec4899"    # Pink / Magenta
+# Paleta de colores moderna (Midnight Slate & Accents)
+BG_DARK = "#0b1120"       # Fondo principal profundo
+BG_CARD = "#131c31"       # Tarjeta principal
+BG_INNER = "#0f172a"      # Sub-panel interno
+BG_CARD_HOVER = "#1e293b" # Pestaña activa / hover
+BORDER_CARD = "#24324d"   # Borde sutil moderno
+BG_TERMINAL = "#070b14"   # Terminal consola
+TEXT_WHITE = "#f8fafc"    # Texto principal
+TEXT_MUTED = "#94a3b8"    # Texto secundario
+COLOR_VOZ = "#38bdf8"     # Azul cielo
+COLOR_AM = "#f59e0b"      # Ámbar
+COLOR_FM = "#f43f5e"      # Rosa coral
+COLOR_REC = "#10b981"     # Verde esmeralda
+COLOR_ALERT = "#ef4444"   # Rojo alerta
+COLOR_PURPLE = "#8b5cf6"  # Violeta
+COLOR_CYAN = "#06b6d4"    # Cian
+COLOR_PINK = "#ec4899"    # Magenta
 
 # ────────────────────────────────────────────────────────────
 # CARGA DE AUDIO Y PROCESAMIENTO
@@ -311,79 +325,82 @@ class SDRModernApp(tk.Tk):
         style = ttk.Style(self)
         style.theme_use("clam")
 
-        style.configure("TNotebook", background=BG_DARK, borderwidth=0)
+        style.configure("TNotebook", background=BG_DARK, borderwidth=0, tabmargins=[0, 4, 0, 0])
         style.configure("TNotebook.Tab", background=BG_CARD, foreground=TEXT_MUTED,
-                        padding=[16, 7], font=("Segoe UI", 9, "bold"), borderwidth=0)
+                        padding=[18, 9], font=("Segoe UI", 9, "bold"), borderwidth=0)
         style.map("TNotebook.Tab",
-                  background=[("selected", BG_CARD_HOVER)],
-                  foreground=[("selected", TEXT_WHITE)])
+                  background=[("selected", "#1e293b"), ("active", "#182238")],
+                  foreground=[("selected", COLOR_VOZ), ("active", TEXT_WHITE)])
 
         style.configure("TFrame", background=BG_DARK)
         style.configure("Card.TFrame", background=BG_CARD, relief="flat")
 
-        # Botones temáticos
-        style.configure("Modern.TButton", font=("Segoe UI", 9, "bold"), padding=[10, 6],
-                        background="#2563eb", foreground="white", borderwidth=0)
-        style.map("Modern.TButton", background=[("active", "#1d4ed8")])
+        style.configure("Horizontal.TProgressbar", troughcolor=BG_INNER, background=COLOR_REC,
+                        borderwidth=0, thickness=8)
 
-        style.configure("Stop.TButton", font=("Segoe UI", 9, "bold"), padding=[10, 5],
-                        background="#dc2626", foreground="white", borderwidth=0)
-        style.map("Stop.TButton", background=[("active", "#b91c1c")])
+        # Botones planos modernos
+        for nombre, bg, act in [
+            ("Modern.TButton", "#2563eb", "#1d4ed8"),
+            ("Blue.TButton", "#0284c7", "#0369a1"),
+            ("Stop.TButton", "#dc2626", "#b91c1c"),
+            ("AM.TButton", "#d97706", "#b45309"),
+            ("FM.TButton", "#e11d48", "#be123c"),
+            ("Green.TButton", "#059669", "#047857"),
+            ("Purple.TButton", "#7c3aed", "#6d28d9"),
+            ("Pink.TButton", "#db2777", "#be185d"),
+        ]:
+            style.configure(nombre, font=("Segoe UI", 9, "bold"), padding=[12, 7],
+                            background=bg, foreground="white", borderwidth=0, focusthickness=0)
+            style.map(nombre,
+                      background=[("active", act), ("disabled", "#1e293b")],
+                      foreground=[("disabled", "#64748b")])
 
-        style.configure("AM.TButton", font=("Segoe UI", 9, "bold"), padding=[10, 6],
-                        background="#d97706", foreground="white", borderwidth=0)
-        style.map("AM.TButton", background=[("active", "#b45309")])
-
-        style.configure("FM.TButton", font=("Segoe UI", 9, "bold"), padding=[10, 6],
-                        background="#e11d48", foreground="white", borderwidth=0)
-        style.map("FM.TButton", background=[("active", "#be123c")])
-
-        style.configure("Green.TButton", font=("Segoe UI", 9, "bold"), padding=[10, 6],
-                        background="#059669", foreground="white", borderwidth=0)
-        style.map("Green.TButton", background=[("active", "#047857")])
-
-        style.configure("Purple.TButton", font=("Segoe UI", 9, "bold"), padding=[10, 6],
-                        background="#9333ea", foreground="white", borderwidth=0)
-        style.map("Purple.TButton", background=[("active", "#7e22ce")])
-
-        style.configure("Pink.TButton", font=("Segoe UI", 9, "bold"), padding=[10, 6],
-                        background="#db2777", foreground="white", borderwidth=0)
-        style.map("Pink.TButton", background=[("active", "#be185d")])
+    def _crear_tarjeta(self, parent, titulo: str, acento: str = COLOR_VOZ, pady: int = 4):
+        """Crea una tarjeta plana moderna con borde sutil y cabecera limpia."""
+        outer = tk.Frame(parent, bg=BG_CARD, highlightbackground=BORDER_CARD, highlightthickness=1)
+        outer.pack(fill=tk.X, pady=pady)
+        top_bar = tk.Frame(outer, bg=acento, height=2)
+        top_bar.pack(fill=tk.X)
+        inner = tk.Frame(outer, bg=BG_CARD, padx=11, pady=8)
+        inner.pack(fill=tk.BOTH, expand=True)
+        tk.Label(inner, text=titulo, font=("Segoe UI", 8, "bold"), fg=acento, bg=BG_CARD).pack(anchor="w", pady=(0, 5))
+        return inner
 
     def _construir_ui(self):
-        # Header superior
-        header = tk.Frame(self, bg=BG_CARD, height=60, padx=20)
+        # Header superior limpio
+        header = tk.Frame(self, bg=BG_CARD, height=68, padx=22)
         header.pack(fill=tk.X, side=tk.TOP)
+        tk.Frame(self, bg=BORDER_CARD, height=1).pack(fill=tk.X, side=tk.TOP)
 
         titulo_box = tk.Frame(header, bg=BG_CARD)
-        titulo_box.pack(side=tk.LEFT, pady=10)
+        titulo_box.pack(side=tk.LEFT, pady=12)
 
-        tk.Label(titulo_box, text="📻 SDR RADIO TRANSMITTER & UDP NETWORK", font=("Segoe UI", 13, "bold"),
-                 fg=COLOR_VOZ, bg=BG_CARD).pack(anchor="w")
+        tk.Label(titulo_box, text="📻  SDR VOICE RADIO  —  LABORATORIO DE REDES",
+                 font=("Segoe UI", 13, "bold"), fg=TEXT_WHITE, bg=BG_DARK).pack(anchor="w")
         dur_s = len(self.voz) / FS
         self.lbl_header_sub = tk.Label(
             titulo_box,
-            text=f"Audio activo: audio_original.wav ({dur_s:.1f} s a 48 kHz) — Portadora fc = 8 kHz — Sockets UDP",
+            text=f"Audio activo: audio_original.wav ({dur_s:.1f} s a 48 kHz)  •  Portadora fc = 8 kHz  •  UDP",
             font=("Segoe UI", 8), fg=TEXT_MUTED, bg=BG_CARD
         )
-        self.lbl_header_sub.pack(anchor="w")
+        self.lbl_header_sub.pack(anchor="w", pady=(2, 0))
 
         f_hdr_btns = tk.Frame(header, bg=BG_CARD)
-        f_hdr_btns.pack(side=tk.RIGHT, pady=12)
+        f_hdr_btns.pack(side=tk.RIGHT, pady=14)
 
         self.btn_grabar_voz = ttk.Button(f_hdr_btns, text="🎤 Grabar Tu Voz (4s)", style="Green.TButton",
                                          command=self._iniciar_grabacion_voz)
-        self.btn_grabar_voz.pack(side=tk.LEFT, padx=(0, 6))
+        self.btn_grabar_voz.pack(side=tk.LEFT, padx=(0, 8))
 
         ttk.Button(f_hdr_btns, text="🔄 WAV Original", style="Blue.TButton",
-                   command=self._restaurar_voz_original).pack(side=tk.LEFT, padx=(0, 6))
+                   command=self._restaurar_voz_original).pack(side=tk.LEFT, padx=(0, 8))
 
         ttk.Button(f_hdr_btns, text="⏹ Parar Audio", style="Stop.TButton",
                    command=self.parar_audio).pack(side=tk.LEFT)
 
-        # Notebook con las 5 pestañas
+        # Notebook con las 5 pestañas claras
         self.notebook = ttk.Notebook(self)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=12, pady=8)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=14, pady=10)
 
         self.tab_am = ttk.Frame(self.notebook)
         self.tab_fm = ttk.Frame(self.notebook)
@@ -393,9 +410,9 @@ class SDRModernApp(tk.Tk):
 
         self.notebook.add(self.tab_am, text="  1. Modulación AM  ")
         self.notebook.add(self.tab_fm, text="  2. Modulación FM  ")
-        self.notebook.add(self.tab_ruido, text="  3. AM vs FM Ruido  ")
-        self.notebook.add(self.tab_red, text="  4. Transporte UDP (Fase 4)  ")
-        self.notebook.add(self.tab_fase5, text="  5. Integración AM/FM sobre UDP (Fase 5)  ")
+        self.notebook.add(self.tab_ruido, text="  3. AM vs FM (Ruido)  ")
+        self.notebook.add(self.tab_red, text="  4. Red UDP & Espía  ")
+        self.notebook.add(self.tab_fase5, text="  5. Radio AM/FM en Red  ")
 
         self._crear_tab_am()
         self._crear_tab_fm()
@@ -410,16 +427,14 @@ class SDRModernApp(tk.Tk):
         paned = tk.PanedWindow(self.tab_am, orient=tk.HORIZONTAL, bg=BG_DARK, bd=0, sashwidth=4)
         paned.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        izq = tk.Frame(paned, bg=BG_CARD, width=390, padx=15, pady=15)
+        izq = tk.Frame(paned, bg=BG_DARK, width=390, padx=15, pady=15)
         paned.add(izq, minsize=360)
 
         tk.Label(izq, text="Cadena de Audio AM", font=("Segoe UI", 12, "bold"),
-                 fg=TEXT_WHITE, bg=BG_CARD).pack(anchor="w", pady=(0, 10))
+                 fg=TEXT_WHITE, bg=BG_DARK).pack(anchor="w", pady=(0, 10))
 
         # Paso 1
-        card1 = tk.LabelFrame(izq, text=" PASO 1 · TU VOZ NATURAL ", font=("Segoe UI", 8, "bold"),
-                              bg=BG_CARD, fg=COLOR_VOZ, bd=1, padx=10, pady=8)
-        card1.pack(fill=tk.X, pady=6)
+        card1 = self._crear_tarjeta(izq, " PASO 1 · TU VOZ NATURAL ", acento=COLOR_VOZ, pady=4)
         tk.Label(card1, text="Voz en frecuencias bajas (0 a 4 kHz). Escucha cómo suena la persona hablando.",
                  font=("Segoe UI", 9), fg=TEXT_MUTED, bg=BG_CARD, wraplength=320, justify="left").pack(anchor="w", pady=(0, 6))
         ttk.Button(card1, text="▶ 1. Escuchar Voz Original", style="Modern.TButton",
@@ -433,9 +448,7 @@ class SDRModernApp(tk.Tk):
                    )).pack(fill=tk.X)
 
         # Paso 2
-        card2 = tk.LabelFrame(izq, text=" PASO 2 · MODULADA EN LA PORTADORA ", font=("Segoe UI", 8, "bold"),
-                              bg=BG_CARD, fg=COLOR_AM, bd=1, padx=10, pady=8)
-        card2.pack(fill=tk.X, pady=6)
+        card2 = self._crear_tarjeta(izq, " PASO 2 · MODULADA EN LA PORTADORA ", acento=COLOR_AM, pady=4)
         tk.Label(card2, text="Montamos la voz sobre una portadora de 8.000 Hz. El volumen de la onda dibuja la voz.",
                  font=("Segoe UI", 9), fg=TEXT_MUTED, bg=BG_CARD, wraplength=320, justify="left").pack(anchor="w", pady=(0, 6))
         ttk.Button(card2, text="▶ 2. Escuchar Señal AM Modulada", style="AM.TButton",
@@ -449,9 +462,7 @@ class SDRModernApp(tk.Tk):
                    )).pack(fill=tk.X)
 
         # Paso 3
-        card3 = tk.LabelFrame(izq, text=" PASO 3 · DEMODULADA (EL RECEPTOR) ", font=("Segoe UI", 8, "bold"),
-                              bg=BG_CARD, fg=COLOR_REC, bd=1, padx=10, pady=8)
-        card3.pack(fill=tk.X, pady=6)
+        card3 = self._crear_tarjeta(izq, " PASO 3 · DEMODULADA (EL RECEPTOR) ", acento=COLOR_REC, pady=4)
         tk.Label(card3, text="El receptor multiplica por 8 kHz y filtra el residuo agudo para rescatar la voz.",
                  font=("Segoe UI", 9), fg=TEXT_MUTED, bg=BG_CARD, wraplength=320, justify="left").pack(anchor="w", pady=(0, 6))
         ttk.Button(card3, text="▶ 3. Escuchar Voz Recuperada", style="Green.TButton",
@@ -478,7 +489,7 @@ class SDRModernApp(tk.Tk):
         der = tk.Frame(paned, bg=BG_CARD)
         paned.add(der, minsize=500)
 
-        self.fig_am = Figure(figsize=(7, 5), dpi=100, facecolor=BG_CARD)
+        self.fig_am = Figure(figsize=(7, 5), dpi=120, facecolor=BG_CARD)
         self.canvas_am = FigureCanvasTkAgg(self.fig_am, master=der)
         self.canvas_am.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._configurar_toolbar(self.canvas_am, der)
@@ -492,16 +503,14 @@ class SDRModernApp(tk.Tk):
         paned = tk.PanedWindow(self.tab_fm, orient=tk.HORIZONTAL, bg=BG_DARK, bd=0, sashwidth=4)
         paned.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        izq = tk.Frame(paned, bg=BG_CARD, width=390, padx=15, pady=15)
+        izq = tk.Frame(paned, bg=BG_DARK, width=390, padx=15, pady=15)
         paned.add(izq, minsize=360)
 
         tk.Label(izq, text="Cadena de Audio FM", font=("Segoe UI", 12, "bold"),
-                 fg=TEXT_WHITE, bg=BG_CARD).pack(anchor="w", pady=(0, 10))
+                 fg=TEXT_WHITE, bg=BG_DARK).pack(anchor="w", pady=(0, 10))
 
         # Paso 1
-        card1 = tk.LabelFrame(izq, text=" PASO 1 · TU VOZ NATURAL ", font=("Segoe UI", 8, "bold"),
-                              bg=BG_CARD, fg=COLOR_VOZ, bd=1, padx=10, pady=8)
-        card1.pack(fill=tk.X, pady=6)
+        card1 = self._crear_tarjeta(izq, " PASO 1 · TU VOZ NATURAL ", acento=COLOR_VOZ, pady=4)
         tk.Label(card1, text="Voz en banda base (0 a 4 kHz). Esta es la señal moduladora que viaja en la frecuencia.",
                  font=("Segoe UI", 9), fg=TEXT_MUTED, bg=BG_CARD, wraplength=320, justify="left").pack(anchor="w", pady=(0, 6))
         ttk.Button(card1, text="▶ 1. Escuchar Voz Original", style="Modern.TButton",
@@ -515,9 +524,7 @@ class SDRModernApp(tk.Tk):
                    )).pack(fill=tk.X)
 
         # Paso 2
-        card2 = tk.LabelFrame(izq, text=" PASO 2 · MODULADA EN FRECUENCIA (FM) ", font=("Segoe UI", 8, "bold"),
-                              bg=BG_CARD, fg=COLOR_FM, bd=1, padx=10, pady=8)
-        card2.pack(fill=tk.X, pady=6)
+        card2 = self._crear_tarjeta(izq, " PASO 2 · MODULADA EN FRECUENCIA (FM) ", acento=COLOR_FM, pady=4)
         tk.Label(card2, text="La amplitud es constante (inmune al ruido). La voz hace que la onda se comprima y se expanda.",
                  font=("Segoe UI", 9), fg=TEXT_MUTED, bg=BG_CARD, wraplength=320, justify="left").pack(anchor="w", pady=(0, 6))
         ttk.Button(card2, text="▶ 2. Escuchar Señal FM Modulada", style="FM.TButton",
@@ -531,9 +538,7 @@ class SDRModernApp(tk.Tk):
                    )).pack(fill=tk.X)
 
         # Paso 3
-        card3 = tk.LabelFrame(izq, text=" PASO 3 · DEMODULADA (DISCRIMINADOR FM) ", font=("Segoe UI", 8, "bold"),
-                              bg=BG_CARD, fg=COLOR_REC, bd=1, padx=10, pady=8)
-        card3.pack(fill=tk.X, pady=6)
+        card3 = self._crear_tarjeta(izq, " PASO 3 · DEMODULADA (DISCRIMINADOR FM) ", acento=COLOR_REC, pady=4)
         tk.Label(card3, text="El receptor mide los giros de fase instántaneos (Hilbert) y rescata la voz original limpia.",
                  font=("Segoe UI", 9), fg=TEXT_MUTED, bg=BG_CARD, wraplength=320, justify="left").pack(anchor="w", pady=(0, 6))
         ttk.Button(card3, text="▶ 3. Escuchar Voz Recuperada FM", style="Green.TButton",
@@ -558,7 +563,7 @@ class SDRModernApp(tk.Tk):
         der = tk.Frame(paned, bg=BG_CARD)
         paned.add(der, minsize=500)
 
-        self.fig_fm = Figure(figsize=(7, 5), dpi=100, facecolor=BG_CARD)
+        self.fig_fm = Figure(figsize=(7, 5), dpi=120, facecolor=BG_CARD)
         self.canvas_fm = FigureCanvasTkAgg(self.fig_fm, master=der)
         self.canvas_fm.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._configurar_toolbar(self.canvas_fm, der)
@@ -572,27 +577,23 @@ class SDRModernApp(tk.Tk):
         paned = tk.PanedWindow(self.tab_ruido, orient=tk.HORIZONTAL, bg=BG_DARK, bd=0, sashwidth=4)
         paned.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        izq = tk.Frame(paned, bg=BG_CARD, width=410, padx=15, pady=15)
+        izq = tk.Frame(paned, bg=BG_DARK, width=410, padx=15, pady=15)
         paned.add(izq, minsize=380)
 
         tk.Label(izq, text="Prueba de Canal Ruidoso", font=("Segoe UI", 12, "bold"),
-                 fg=TEXT_WHITE, bg=BG_CARD).pack(anchor="w")
+                 fg=TEXT_WHITE, bg=BG_DARK).pack(anchor="w")
         tk.Label(izq, text="Inyectamos el mismo ruido electromagnético de radio a ambas señales. ¡Compara cómo suena cada una!",
                  font=("Segoe UI", 9), fg=TEXT_MUTED, bg=BG_CARD, wraplength=350, justify="left").pack(anchor="w", pady=(4, 12))
 
         # Tarjeta AM
-        card_am = tk.LabelFrame(izq, text=" 📻 RECEPCIÓN AM (AFECTADA POR RUIDO) ", font=("Segoe UI", 8, "bold"),
-                                bg=BG_CARD, fg=COLOR_AM, bd=1, padx=10, pady=8)
-        card_am.pack(fill=tk.X, pady=6)
+        card_am = self._crear_tarjeta(izq, " 📻 RECEPCIÓN AM (AFECTADA POR RUIDO) ", acento=COLOR_AM, pady=4)
         tk.Label(card_am, text="AM guarda la voz en la amplitud. Como el ruido modifica la amplitud, se oye un siseo constante.",
                  font=("Segoe UI", 9), fg=TEXT_MUTED, bg=BG_CARD, wraplength=340, justify="left").pack(anchor="w", pady=(0, 6))
         ttk.Button(card_am, text="🔊 Escuchar AM con Ruido (Siseo)", style="AM.TButton",
                    command=self._accion_am_ruido).pack(fill=tk.X)
 
         # Tarjeta FM
-        card_fm = tk.LabelFrame(izq, text=" 📡 RECEPCIÓN FM (INMUNE AL RUIDO) ", font=("Segoe UI", 8, "bold"),
-                                bg=BG_CARD, fg=COLOR_FM, bd=1, padx=10, pady=8)
-        card_fm.pack(fill=tk.X, pady=6)
+        card_fm = self._crear_tarjeta(izq, " 📡 RECEPCIÓN FM (INMUNE AL RUIDO) ", acento=COLOR_FM, pady=4)
         tk.Label(card_fm, text="FM guarda la voz en la frecuencia. El limitador del receptor corta el ruido de amplitud y la voz suena limpia.",
                  font=("Segoe UI", 9), fg=TEXT_MUTED, bg=BG_CARD, wraplength=340, justify="left").pack(anchor="w", pady=(0, 6))
         ttk.Button(card_fm, text="🔊 Escuchar FM con Ruido (Voz Limpia)", style="FM.TButton",
@@ -617,7 +618,7 @@ class SDRModernApp(tk.Tk):
         der = tk.Frame(paned, bg=BG_CARD)
         paned.add(der, minsize=500)
 
-        self.fig_ruido = Figure(figsize=(7, 5), dpi=100, facecolor=BG_CARD)
+        self.fig_ruido = Figure(figsize=(7, 5), dpi=120, facecolor=BG_CARD)
         self.canvas_ruido = FigureCanvasTkAgg(self.fig_ruido, master=der)
         self.canvas_ruido.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._configurar_toolbar(self.canvas_ruido, der)
@@ -639,18 +640,16 @@ class SDRModernApp(tk.Tk):
         paned = tk.PanedWindow(self.tab_red, orient=tk.HORIZONTAL, bg=BG_DARK, bd=0, sashwidth=4)
         paned.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        izq = tk.Frame(paned, bg=BG_CARD, width=445, padx=14, pady=10)
+        izq = tk.Frame(paned, bg=BG_DARK, width=445, padx=14, pady=10)
         paned.add(izq, minsize=425)
 
         tk.Label(izq, text="Fase 4: Transporte UDP y Esteganografía", font=("Segoe UI", 12, "bold"),
-                 fg=TEXT_WHITE, bg=BG_CARD).pack(anchor="w")
+                 fg=TEXT_WHITE, bg=BG_DARK).pack(anchor="w")
         tk.Label(izq, text="Envía la señal por paquetes UDP (en local o entre 2 PCs) camuflada bajo una melodía musical.",
                  font=("Segoe UI", 8), fg=TEXT_MUTED, bg=BG_CARD, wraplength=400, justify="left").pack(anchor="w", pady=(2, 6))
 
         # Tarjeta 0: Conexión de Red (Local vs PC a PC)
-        card_red = tk.LabelFrame(izq, text=" 🌐 CONEXIÓN DE RED (1 PC o ENTRE 2 PCs) ",
-                                 font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg="#38bdf8", bd=1, padx=10, pady=6)
-        card_red.pack(fill=tk.X, pady=3)
+        card_red = self._crear_tarjeta(izq, " 🌐 CONEXIÓN DE RED (1 PC o ENTRE 2 PCs) ", acento="#38bdf8", pady=4)
 
         f_roles = tk.Frame(card_red, bg=BG_CARD)
         f_roles.pack(fill=tk.X)
@@ -670,9 +669,7 @@ class SDRModernApp(tk.Tk):
         self.f4_net_info.pack(fill=tk.X, pady=(4, 0))
 
         # Tarjeta 1: Controles de Emisión
-        card_ctrl = tk.LabelFrame(izq, text=" ⚙️ CONTROL DE EMISIÓN UDP ", font=("Segoe UI", 8, "bold"),
-                                  bg=BG_CARD, fg=COLOR_VOZ, bd=1, padx=10, pady=6)
-        card_ctrl.pack(fill=tk.X, pady=3)
+        card_ctrl = self._crear_tarjeta(izq, " ⚙️ CONTROL DE EMISIÓN UDP ", acento=COLOR_VOZ, pady=4)
 
         f_cfg = tk.Frame(card_ctrl, bg=BG_CARD)
         f_cfg.pack(fill=tk.X, pady=(0, 5))
@@ -703,9 +700,7 @@ class SDRModernApp(tk.Tk):
         self.btn_detener_tx.pack(side=tk.RIGHT)
 
         # Tarjeta 2: Monitor de Terminal de Datagramas en Vivo
-        card_feed = tk.LabelFrame(izq, text=" 📟 MONITOR DE DATAGRAMAS (SOCKET FEED EN DIRECTO) ",
-                                  font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg="#38bdf8", bd=1, padx=8, pady=5)
-        card_feed.pack(fill=tk.X, pady=3)
+        card_feed = self._crear_tarjeta(izq, " 📟 MONITOR DE DATAGRAMAS (SOCKET FEED EN DIRECTO) ", acento="#38bdf8", pady=4)
 
         self.feed_terminal = tk.Text(card_feed, height=5, bg="#090d16", fg="#38bdf8",
                                      font=("Consolas", 8), bd=0, padx=6, pady=4, wrap=tk.NONE)
@@ -714,9 +709,7 @@ class SDRModernApp(tk.Tk):
         self.feed_terminal.config(state=tk.DISABLED)
 
         # Tarjeta 3: Telemetría de Red en Vivo (KPIs)
-        card_kpis = tk.LabelFrame(izq, text=" 📊 TELEMETRÍA DE RED (RFC 3550) ", font=("Segoe UI", 8, "bold"),
-                                  bg=BG_CARD, fg=COLOR_REC, bd=1, padx=8, pady=5)
-        card_kpis.pack(fill=tk.X, pady=3)
+        card_kpis = self._crear_tarjeta(izq, " 📊 TELEMETRÍA DE RED (RFC 3550) ", acento=COLOR_REC, pady=4)
 
         self.prog_tx = ttk.Progressbar(card_kpis, orient=tk.HORIZONTAL, mode="determinate")
         self.prog_tx.pack(fill=tk.X, pady=(0, 5))
@@ -739,9 +732,7 @@ class SDRModernApp(tk.Tk):
             setattr(self, attr, lbl)
 
         # Tarjeta 4: Verificación Auditiva + Demo Interceptor
-        card_audio = tk.LabelFrame(izq, text=" 🔊 DEMOSTRACIÓN: ESPÍA (MÚSICA) vs RECEPTOR (VOZ) ",
-                                   font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg="#f59e0b", bd=1, padx=8, pady=5)
-        card_audio.pack(fill=tk.X, pady=3)
+        card_audio = self._crear_tarjeta(izq, " 🔊 DEMOSTRACIÓN: ESPÍA (MÚSICA) vs RECEPTOR (VOZ) ", acento="#f59e0b", pady=4)
 
         tk.Label(card_audio, text="Enseña al profesor qué oye un atacante sin clave vs el receptor legítimo:",
                  font=("Segoe UI", 7), fg=TEXT_MUTED, bg=BG_CARD, justify="left", wraplength=390).pack(anchor="w", pady=(0, 4))
@@ -763,7 +754,7 @@ class SDRModernApp(tk.Tk):
         der = tk.Frame(paned, bg=BG_CARD)
         paned.add(der, minsize=500)
 
-        self.fig_red = Figure(figsize=(7, 5), dpi=100, facecolor=BG_CARD)
+        self.fig_red = Figure(figsize=(7, 5), dpi=120, facecolor=BG_CARD)
         self.canvas_red = FigureCanvasTkAgg(self.fig_red, master=der)
         self.canvas_red.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._configurar_toolbar(self.canvas_red, der)
@@ -1294,11 +1285,11 @@ class SDRModernApp(tk.Tk):
         paned = tk.PanedWindow(self.tab_fase5, orient=tk.HORIZONTAL, bg=BG_DARK, bd=0, sashwidth=4)
         paned.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        izq = tk.Frame(paned, bg=BG_CARD, width=445, padx=14, pady=10)
+        izq = tk.Frame(paned, bg=BG_DARK, width=445, padx=14, pady=10)
         paned.add(izq, minsize=425)
 
         tk.Label(izq, text="Fase 5: Radio AM/FM en Vivo por Red UDP", font=("Segoe UI", 12, "bold"),
-                 fg=TEXT_WHITE, bg=BG_CARD).pack(anchor="w")
+                 fg=TEXT_WHITE, bg=BG_DARK).pack(anchor="w")
         tk.Label(
             izq,
             text="Qué enseña esta pestaña: tu voz se modula (AM o FM) bloque a bloque, viaja por la red en paquetes UDP y el receptor la reconstruye al instante.",
@@ -1306,9 +1297,7 @@ class SDRModernApp(tk.Tk):
         ).pack(anchor="w", pady=(2, 6))
 
         # Tarjeta 0: Modo de Red (Local vs PC a PC)
-        card_red = tk.LabelFrame(izq, text=" 🌐 CONEXIÓN DE RED (1 PC o ENTRE 2 PCs) ",
-                                 font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg="#38bdf8", bd=1, padx=10, pady=6)
-        card_red.pack(fill=tk.X, pady=3)
+        card_red = self._crear_tarjeta(izq, " 🌐 CONEXIÓN DE RED (1 PC o ENTRE 2 PCs) ", acento="#38bdf8", pady=4)
 
         f_roles = tk.Frame(card_red, bg=BG_CARD)
         f_roles.pack(fill=tk.X)
@@ -1328,9 +1317,7 @@ class SDRModernApp(tk.Tk):
         self.f5_net_info.pack(fill=tk.X, pady=(4, 0))
 
         # Tarjeta 1: Controles del Modulador SDR
-        card_ctrl = tk.LabelFrame(izq, text=" ⚙️ CONFIGURACIÓN DE MODULACIÓN ",
-                                  font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg=COLOR_AM, bd=1, padx=10, pady=6)
-        card_ctrl.pack(fill=tk.X, pady=3)
+        card_ctrl = self._crear_tarjeta(izq, " ⚙️ CONFIGURACIÓN DE MODULACIÓN ", acento=COLOR_AM, pady=4)
 
         f_modos = tk.Frame(card_ctrl, bg=BG_CARD)
         f_modos.pack(fill=tk.X, pady=(0, 4))
@@ -1374,9 +1361,7 @@ class SDRModernApp(tk.Tk):
         self.btn_f5_detener.pack(side=tk.RIGHT)
 
         # Tarjeta 2: Monitor de Terminal
-        card_feed = tk.LabelFrame(izq, text=" 📟 REGISTRO DE PAQUETES UDP EN VIVO ",
-                                  font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg="#38bdf8", bd=1, padx=8, pady=5)
-        card_feed.pack(fill=tk.X, pady=3)
+        card_feed = self._crear_tarjeta(izq, " 📟 REGISTRO DE PAQUETES UDP EN VIVO ", acento="#38bdf8", pady=4)
 
         self.f5_terminal = tk.Text(card_feed, height=5, bg=BG_TERMINAL, fg="#38bdf8",
                                    font=("Consolas", 8), bd=0, padx=6, pady=4, wrap=tk.NONE)
@@ -1385,9 +1370,7 @@ class SDRModernApp(tk.Tk):
         self.f5_terminal.config(state=tk.DISABLED)
 
         # Tarjeta 3: Telemetría y Fidelidad
-        card_kpis = tk.LabelFrame(izq, text=" 📊 RESULTADOS DE LA TRANSMISIÓN ",
-                                  font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg=COLOR_REC, bd=1, padx=8, pady=5)
-        card_kpis.pack(fill=tk.X, pady=3)
+        card_kpis = self._crear_tarjeta(izq, " 📊 RESULTADOS DE LA TRANSMISIÓN ", acento=COLOR_REC, pady=4)
 
         self.f5_prog = ttk.Progressbar(card_kpis, orient=tk.HORIZONTAL, mode="determinate")
         self.f5_prog.pack(fill=tk.X, pady=(0, 5))
@@ -1410,9 +1393,7 @@ class SDRModernApp(tk.Tk):
             setattr(self, attr, lbl)
 
         # Tarjeta 4: Escucha y Verificación
-        card_audio = tk.LabelFrame(izq, text=" 🔊 ESCUCHAR RESULTADO ",
-                                   font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg="#f59e0b", bd=1, padx=8, pady=5)
-        card_audio.pack(fill=tk.X, pady=3)
+        card_audio = self._crear_tarjeta(izq, " 🔊 ESCUCHAR RESULTADO ", acento="#f59e0b", pady=4)
 
         f_play_btns = tk.Frame(card_audio, bg=BG_CARD)
         f_play_btns.pack(fill=tk.X)
@@ -1435,7 +1416,7 @@ class SDRModernApp(tk.Tk):
         der = tk.Frame(paned, bg=BG_CARD)
         paned.add(der, minsize=500)
 
-        self.fig_f5 = Figure(figsize=(7, 5.5), dpi=100, facecolor=BG_CARD)
+        self.fig_f5 = Figure(figsize=(7, 5.5), dpi=120, facecolor=BG_CARD)
         self.canvas_f5 = FigureCanvasTkAgg(self.fig_f5, master=der)
         self.canvas_f5.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._configurar_toolbar(self.canvas_f5, der)
@@ -2004,13 +1985,8 @@ class SDRModernApp(tk.Tk):
         self._on_voz_actualizada(voz, "audio_original.wav")
 
     def _configurar_toolbar(self, canvas, parent):
-        toolbar = NavigationToolbar2Tk(canvas, parent)
-        toolbar.config(background=BG_CARD)
-        toolbar._message_label.config(background=BG_CARD, foreground=TEXT_WHITE)
-        for button in toolbar.winfo_children():
-            button.config(background=BG_CARD)
-        toolbar.update()
-        toolbar.pack(fill=tk.X)
+        # Barra de herramientas oculta para mantener estética limpia y moderna
+        pass
 
     def reproducir_audio(self, sig):
         if not AUDIO_OK:
