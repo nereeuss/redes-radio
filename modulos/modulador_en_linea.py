@@ -165,10 +165,8 @@ def modular_am_bloque(
     portadora = np.cos(2.0 * np.pi * fc * n / fs).astype(np.float32)
     s_am = (1.0 + ka * bloque) * portadora
 
-    # Normalización suave por percentil (no recorta picos finos)
-    pico = np.percentile(np.abs(s_am), 99.9)
-    if pico > 0:
-        s_am = np.clip(s_am / pico * 0.95, -1.0, 1.0)
+    # Escala fija por cota analítica (1 + ka) para preservar la envolvente entre bloques
+    s_am = np.clip(s_am / (1.0 + ka) * 0.95, -0.95, 0.95)
 
     nuevo_offset = sample_offset + len(bloque)
     return s_am.astype(np.float32), nuevo_offset
@@ -209,10 +207,9 @@ def demodular_am_bloque(
     b, a = _butter_lp(corte_lp, fs)
     demod = _aplicar_filtro(mezclado, b, a)
 
-    demod = demod - np.mean(demod)
-    pico = np.max(np.abs(demod))
-    if pico > 0:
-        demod = demod / pico * 0.95
+    # Ganancia analítica del detector coherente sin amplificar bloques silenciosos
+    demod = demod * (2.0 * (1.0 + ka) / (0.95 * max(ka, 1e-6)))
+    demod = np.clip(demod - np.mean(demod), -0.95, 0.95)
 
     nuevo_offset = sample_offset + len(bloque_am)
     return demod.astype(np.float32), nuevo_offset
@@ -320,14 +317,10 @@ def demodular_fm_bloque(
     demod = (freq_inst - fc) / kf
     demod = np.append(demod, 0.0)   # Restaurar muestra perdida por diff()
 
-    # 5. Filtro paso-bajo + normalización
+    # 5. Filtro paso-bajo sin inflar silencio
     b, a = _butter_lp(corte_lp, fs)
     demod = _aplicar_filtro(demod, b, a)
-
-    demod = demod - np.mean(demod)
-    pico = np.max(np.abs(demod))
-    if pico > 0:
-        demod = demod / pico * 0.95
+    demod = np.clip(demod - np.mean(demod), -0.95, 0.95)
 
     return demod.astype(np.float32)
 
@@ -341,10 +334,7 @@ def _demodular_fm_simple(bloque_fm, fc, kf, fs, corte_lp):
     freq_inst = fase * fs / (2.0 * np.pi)
     demod = (freq_inst - fc) / (kf + 1e-12)
     demod = np.append(demod, 0.0)
-    demod = demod - np.mean(demod)
-    pico = np.max(np.abs(demod))
-    if pico > 0:
-        demod = demod / pico * 0.95
+    demod = np.clip(demod - np.mean(demod), -0.95, 0.95)
     return demod.astype(np.float32)
 
 

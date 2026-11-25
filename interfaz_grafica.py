@@ -1784,22 +1784,29 @@ class SDRModernApp(tk.Tk):
                 seq_min = min(bloques_recibidos.keys())
                 seq_max = max(bloques_recibidos.keys())
                 total_esp = seq_max - seq_min + 1
-                audio_demodulado_partes = []
+                señal_mod_partes = []
 
                 for s in range(seq_min, seq_max + 1):
                     if s in bloques_recibidos:
                         b_rx = bloques_recibidos[s]
                     else:
-                        b_rx = audio_demodulado_partes[-1] * 0.5 if audio_demodulado_partes else np.zeros(tam_bloque, dtype=np.float32)
+                        # PLC sobre la señal modulada recibida (repetición atenuada del último bloque)
+                        b_rx = señal_mod_partes[-1] * 0.5 if señal_mod_partes else np.zeros(tam_bloque, dtype=np.float32)
+                    señal_mod_partes.append(b_rx)
 
-                    if modo == "AM":
-                        b_dem, offset_am_rx = demodular_am_bloque(b_rx, fc=fc, ka=param, fs=FS, sample_offset=offset_am_rx)
-                    else:
-                        b_dem = demodular_fm_bloque(b_rx, fc=fc, kf=param, fs=FS)
-                    audio_demodulado_partes.append(b_dem)
-
-                audio_recuperado = np.concatenate(audio_demodulado_partes)
+                señal_modulada_rx = np.concatenate(señal_mod_partes)
                 señal_modulada = np.concatenate(paquetes_modulados)
+
+                # Demodulación continua del flujo reensamblado (evita clics y siseos en bordes de bloque)
+                if modo == "AM":
+                    audio_recuperado, _ = demodular_am_bloque(
+                        señal_modulada_rx, fc=fc, ka=param, fs=FS, sample_offset=0
+                    )
+                else:
+                    audio_recuperado = demodular_fm_bloque(
+                        señal_modulada_rx, fc=fc, kf=param, fs=FS
+                    )
+
                 snr_info = calcular_snr(self.voz, audio_recuperado)
 
                 metricas = {
