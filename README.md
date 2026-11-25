@@ -15,6 +15,7 @@ redes-radio/
 ├── fase3_comparativa.py    ← FASE 3: Comparativa AM vs FM y resistencia al ruido
 ├── fase4_transporte.py     ← FASE 4: Protocolo UDP propio, fragmentación y cifrado musical
 ├── fase5_integracion.py    ← FASE 5: Modulación AM/FM en tiempo real sobre red UDP
+├── fase6_estres_red.py     ← FASE 6: Pruebas de estrés, pérdidas, tamaño de bloque y PLC
 │
 ├── interfaz_grafica.py     ← Interfaz gráfica interactiva (5 pestañas, todo integrado)
 │
@@ -46,6 +47,7 @@ redes-radio/
 | 3 | `fase3_comparativa.py` | Comparativa espectral AM vs FM, simulación AWGN | ✅ Completada |
 | 4 | `fase4_transporte.py` | Protocolo binario propio, fragmentación UDP, cifrado musical | ✅ Completada |
 | 5 | `fase5_integracion.py` | Modulación AM/FM bloque a bloque + UDP + PLC | ✅ Completada |
+| 6 | `fase6_estres_red.py` | Estrés de red: tamaño de bloque, pérdidas y PLC | ✅ Completada |
 
 ---
 

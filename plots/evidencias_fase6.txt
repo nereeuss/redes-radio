@@ -1,0 +1,23 @@
+======================================================================
+ EVIDENCIAS DE FASE 6: ESTRÉS DE RED — 2026-11-25 17:12:18
+======================================================================
+
+[1] COMPARATIVA DE TAMAÑO DE BLOQUE (MTU):
+  -  128 muestras ( 2.7 ms): 2403 pkts | Overhead  6.9% | Jitter 0.00 ms
+  -  256 muestras ( 5.3 ms): 1202 pkts | Overhead  3.6% | Jitter 0.00 ms
+  -  512 muestras (10.7 ms):  601 pkts | Overhead  1.8% | Jitter 0.00 ms
+  - 1024 muestras (21.3 ms):  301 pkts | Overhead  0.9% | Jitter 0.00 ms
+
+[2] DEGRADACIÓN ANTE PÉRDIDAS DE RED (BLOQUE=512, PLC ACTIVO):
+  - Pérdida  0.0% (  0/601 pkts): SNR -0.3 dB | MSE 0.013748
+  - Pérdida  4.7% ( 28/601 pkts): SNR -0.4 dB | MSE 0.014137
+  - Pérdida 10.0% ( 60/601 pkts): SNR -0.6 dB | MSE 0.014689
+  - Pérdida 18.6% (112/601 pkts): SNR -0.7 dB | MSE 0.015091
+
+======================================================================
+ CONCLUSIONES TÉCNICAS:
+  - Bloque de 512 muestras (~10.7 ms) ofrece el mejor equilibrio:
+    bajo overhead de cabecera (<2%) y tamaño de datagrama seguro (< MTU 1500B).
+  - Con PLC (repetición atenuada), el sistema tolera hasta ~5-10% de pérdida
+    manteniendo la frase comprensible sin bloqueos ni retransmisiones TCP.
+======================================================================

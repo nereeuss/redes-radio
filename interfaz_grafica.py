@@ -233,6 +233,9 @@ class SDRModernApp(tk.Tk):
         self.mascara = cargar_mascara_musical(duracion_s=dur_s + 2.0, fs=FS, ruta_wav="mascara_musical.wav")
 
         # Variables de estado para transmisión UDP (Fase 4)
+        self.f4_modo_red = tk.StringVar(value="LOCAL")
+        self.f4_ip_dest = tk.StringVar(value="192.168.1.")
+        self.f4_puerto = tk.IntVar(value=5005)
         self.transmision_en_curso = False
         self.detener_transmision_flag = False
         self.audio_recibido_red = None
@@ -278,6 +281,12 @@ class SDRModernApp(tk.Tk):
                     self._finalizar_transmision_live(*datos)
                 elif evento == "CANCEL":
                     self._cancelar_transmision_live()
+                elif evento == "F4_LOG":
+                    self._log_f4(*datos)
+                elif evento == "F4_TX_FIN":
+                    self._finalizar_f4_tx(*datos)
+                elif evento == "F4_ERROR":
+                    self._error_f4(*datos)
                 elif evento == "F5_PAQUETE":
                     self._notificar_f5_paquete(*datos)
                 elif evento == "F5_LOG":
@@ -612,21 +621,43 @@ class SDRModernApp(tk.Tk):
         paned = tk.PanedWindow(self.tab_red, orient=tk.HORIZONTAL, bg=BG_DARK, bd=0, sashwidth=4)
         paned.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        izq = tk.Frame(paned, bg=BG_CARD, width=430, padx=14, pady=12)
-        paned.add(izq, minsize=410)
+        izq = tk.Frame(paned, bg=BG_CARD, width=445, padx=14, pady=10)
+        paned.add(izq, minsize=425)
 
-        tk.Label(izq, text="Transmisión por Red UDP en Vivo", font=("Segoe UI", 12, "bold"),
+        tk.Label(izq, text="Fase 4: Transporte UDP y Esteganografía", font=("Segoe UI", 12, "bold"),
                  fg=TEXT_WHITE, bg=BG_CARD).pack(anchor="w")
-        tk.Label(izq, text="Observa los datagramas viajando en tiempo real, el osciloscopio del paquete entrante y la telemetría RFC 3550.",
-                 font=("Segoe UI", 9), fg=TEXT_MUTED, bg=BG_CARD, wraplength=380, justify="left").pack(anchor="w", pady=(2, 8))
+        tk.Label(izq, text="Envía la señal por paquetes UDP (en local o entre 2 PCs) camuflada bajo una melodía musical.",
+                 font=("Segoe UI", 8), fg=TEXT_MUTED, bg=BG_CARD, wraplength=400, justify="left").pack(anchor="w", pady=(2, 6))
+
+        # Tarjeta 0: Conexión de Red (Local vs PC a PC)
+        card_red = tk.LabelFrame(izq, text=" 🌐 CONEXIÓN DE RED (1 PC o ENTRE 2 PCs) ",
+                                 font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg="#38bdf8", bd=1, padx=10, pady=6)
+        card_red.pack(fill=tk.X, pady=3)
+
+        f_roles = tk.Frame(card_red, bg=BG_CARD)
+        f_roles.pack(fill=tk.X)
+
+        for txt, val, col in [
+            ("💻 Bucle Local", "LOCAL", TEXT_WHITE),
+            ("📤 Emisor (A otro PC)", "EMISOR", "#fbbf24"),
+            ("📥 Receptor (De otro PC)", "RECEPTOR", COLOR_REC),
+        ]:
+            tk.Radiobutton(
+                f_roles, text=txt, variable=self.f4_modo_red, value=val,
+                command=self._on_f4_red_change, font=("Segoe UI", 8, "bold"),
+                fg=col, bg=BG_CARD, selectcolor=BG_DARK, activebackground=BG_CARD
+            ).pack(side=tk.LEFT, padx=(0, 6))
+
+        self.f4_net_info = tk.Frame(card_red, bg="#0f172a", padx=8, pady=5)
+        self.f4_net_info.pack(fill=tk.X, pady=(4, 0))
 
         # Tarjeta 1: Controles de Emisión
         card_ctrl = tk.LabelFrame(izq, text=" ⚙️ CONTROL DE EMISIÓN UDP ", font=("Segoe UI", 8, "bold"),
-                                  bg=BG_CARD, fg=COLOR_VOZ, bd=1, padx=10, pady=8)
-        card_ctrl.pack(fill=tk.X, pady=4)
+                                  bg=BG_CARD, fg=COLOR_VOZ, bd=1, padx=10, pady=6)
+        card_ctrl.pack(fill=tk.X, pady=3)
 
         f_cfg = tk.Frame(card_ctrl, bg=BG_CARD)
-        f_cfg.pack(fill=tk.X, pady=(0, 6))
+        f_cfg.pack(fill=tk.X, pady=(0, 5))
 
         self.var_mascara = tk.BooleanVar(value=True)
         chk_mask = tk.Checkbutton(f_cfg, text="🔒 Cifrado Musical (Esteganografía)",
@@ -636,7 +667,7 @@ class SDRModernApp(tk.Tk):
         chk_mask.pack(side=tk.LEFT)
 
         self.var_modo_rt = tk.BooleanVar(value=True)
-        chk_rt = tk.Checkbutton(f_cfg, text="⏱ Modo Tiempo Real (10 ms)",
+        chk_rt = tk.Checkbutton(f_cfg, text="⏱ Tiempo Real",
                                 variable=self.var_modo_rt, font=("Segoe UI", 8),
                                 fg=TEXT_WHITE, bg=BG_CARD, selectcolor=BG_DARK,
                                 activebackground=BG_CARD, activeforeground=TEXT_WHITE)
@@ -655,22 +686,22 @@ class SDRModernApp(tk.Tk):
 
         # Tarjeta 2: Monitor de Terminal de Datagramas en Vivo
         card_feed = tk.LabelFrame(izq, text=" 📟 MONITOR DE DATAGRAMAS (SOCKET FEED EN DIRECTO) ",
-                                  font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg="#38bdf8", bd=1, padx=8, pady=6)
-        card_feed.pack(fill=tk.X, pady=4)
+                                  font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg="#38bdf8", bd=1, padx=8, pady=5)
+        card_feed.pack(fill=tk.X, pady=3)
 
-        self.feed_terminal = tk.Text(card_feed, height=6, bg="#090d16", fg="#38bdf8",
+        self.feed_terminal = tk.Text(card_feed, height=5, bg="#090d16", fg="#38bdf8",
                                      font=("Consolas", 8), bd=0, padx=6, pady=4, wrap=tk.NONE)
         self.feed_terminal.pack(fill=tk.BOTH, expand=True)
-        self.feed_terminal.insert(tk.END, "[SDR-NET] Esperando inicio de transmisión...\n[CONFIG] Socket UDP 127.0.0.1:5005 | MTU=1500B | Bloque=982B\n")
+        self.feed_terminal.insert(tk.END, "[SDR-NET] Esperando inicio de transmisión...\n[CONFIG] Puerto UDP 5005 | MTU=1500B | Bloque=987B\n")
         self.feed_terminal.config(state=tk.DISABLED)
 
         # Tarjeta 3: Telemetría de Red en Vivo (KPIs)
         card_kpis = tk.LabelFrame(izq, text=" 📊 TELEMETRÍA DE RED (RFC 3550) ", font=("Segoe UI", 8, "bold"),
-                                  bg=BG_CARD, fg=COLOR_REC, bd=1, padx=8, pady=6)
-        card_kpis.pack(fill=tk.X, pady=4)
+                                  bg=BG_CARD, fg=COLOR_REC, bd=1, padx=8, pady=5)
+        card_kpis.pack(fill=tk.X, pady=3)
 
         self.prog_tx = ttk.Progressbar(card_kpis, orient=tk.HORIZONTAL, mode="determinate")
-        self.prog_tx.pack(fill=tk.X, pady=(0, 6))
+        self.prog_tx.pack(fill=tk.X, pady=(0, 5))
 
         f_grid = tk.Frame(card_kpis, bg=BG_CARD)
         f_grid.pack(fill=tk.X)
@@ -689,24 +720,26 @@ class SDRModernApp(tk.Tk):
             lbl.pack()
             setattr(self, attr, lbl)
 
-        # Tarjeta 4: Verificación Auditiva
-        card_audio = tk.LabelFrame(izq, text=" 🔊 VERIFICACIÓN AUDITIVA TRAS LA TRANSMISIÓN ",
-                                   font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg="#f59e0b", bd=1, padx=8, pady=6)
-        card_audio.pack(fill=tk.X, pady=4)
+        # Tarjeta 4: Verificación Auditiva + Demo Interceptor
+        card_audio = tk.LabelFrame(izq, text=" 🔊 DEMOSTRACIÓN: ESPÍA (MÚSICA) vs RECEPTOR (VOZ) ",
+                                   font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg="#f59e0b", bd=1, padx=8, pady=5)
+        card_audio.pack(fill=tk.X, pady=3)
 
-        tk.Label(card_audio, text="Comprueba qué viajaba en la red (música de camuflaje) vs lo que extrae el receptor:",
-                 font=("Segoe UI", 8), fg=TEXT_MUTED, bg=BG_CARD, justify="left", wraplength=380).pack(anchor="w", pady=(0, 4))
+        tk.Label(card_audio, text="Enseña al profesor qué oye un atacante sin clave vs el receptor legítimo:",
+                 font=("Segoe UI", 7), fg=TEXT_MUTED, bg=BG_CARD, justify="left", wraplength=390).pack(anchor="w", pady=(0, 4))
 
         f_play_btns = tk.Frame(card_audio, bg=BG_CARD)
         f_play_btns.pack(fill=tk.X)
 
-        self.btn_play_mask = ttk.Button(f_play_btns, text="🎵 Tráfico Red (Música)", style="Pink.TButton",
-                                        command=self._reproducir_audio_enmascarado, state=tk.DISABLED)
+        self.btn_play_mask = ttk.Button(f_play_btns, text="🕵️ Espía (Solo Música)", style="Pink.TButton",
+                                        command=self._reproducir_audio_enmascarado)
         self.btn_play_mask.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
 
         self.btn_play_rec = ttk.Button(f_play_btns, text="✅ Voz Recuperada UDP", style="Green.TButton",
                                        command=self._reproducir_audio_red, state=tk.DISABLED)
         self.btn_play_rec.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(3, 0))
+
+        self._on_f4_red_change()
 
         # Panel Derecho: Gráfica Canvas
         der = tk.Frame(paned, bg=BG_CARD)
@@ -757,6 +790,51 @@ class SDRModernApp(tk.Tk):
         self.fig_red.tight_layout()
         self.canvas_red.draw()
 
+    def _on_f4_red_change(self):
+        for w in self.f4_net_info.winfo_children():
+            w.destroy()
+        rol = self.f4_modo_red.get()
+        if rol == "LOCAL":
+            tk.Label(self.f4_net_info, text="💻 Bucle local en este PC (127.0.0.1:5005). Ideal para probar solo.",
+                     font=("Segoe UI", 8), fg=TEXT_MUTED, bg="#0f172a").pack(anchor="w")
+            self.btn_iniciar_tx.config(text="🚀 Iniciar Transmisión en Vivo")
+        elif rol == "EMISOR":
+            f_row = tk.Frame(self.f4_net_info, bg="#0f172a")
+            f_row.pack(fill=tk.X)
+            tk.Label(f_row, text="IP Destino:", font=("Segoe UI", 8, "bold"), fg="#fbbf24", bg="#0f172a").pack(side=tk.LEFT)
+            ttk.Entry(f_row, textvariable=self.f4_ip_dest, width=16).pack(side=tk.LEFT, padx=(4, 10))
+            tk.Label(f_row, text="Puerto:", font=("Segoe UI", 8), fg=TEXT_MUTED, bg="#0f172a").pack(side=tk.LEFT)
+            ttk.Entry(f_row, textvariable=self.f4_puerto, width=6).pack(side=tk.LEFT, padx=(4, 0))
+            self.btn_iniciar_tx.config(text="📤 Enviar por UDP a IP Destino")
+        else:
+            tk.Label(self.f4_net_info,
+                     text=f"📡 TU IP LOCAL ES: {self.ip_local}  |  PUERTO: {self.f4_puerto.get()}",
+                     font=("Segoe UI", 8, "bold"), fg=COLOR_REC, bg="#0f172a").pack(anchor="w")
+            tk.Label(self.f4_net_info,
+                     text="Dile a tu compañera que escriba esta IP en su modo Emisor.",
+                     font=("Segoe UI", 7), fg=TEXT_MUTED, bg="#0f172a").pack(anchor="w")
+            self.btn_iniciar_tx.config(text="👂 Ponerse a la Escucha en la Red")
+
+    def _log_f4(self, texto):
+        self.feed_terminal.config(state=tk.NORMAL)
+        self.feed_terminal.insert(tk.END, texto + "\n")
+        self.feed_terminal.see(tk.END)
+        self.feed_terminal.config(state=tk.DISABLED)
+
+    def _error_f4(self, err_msg):
+        self.transmision_en_curso = False
+        self.btn_iniciar_tx.config(state=tk.NORMAL)
+        self.btn_detener_tx.config(state=tk.DISABLED)
+        self._log_f4(f"[ERROR] {err_msg}")
+
+    def _finalizar_f4_tx(self, total_pkts, ip_dest, puerto):
+        self.transmision_en_curso = False
+        self.btn_iniciar_tx.config(state=tk.NORMAL)
+        self.btn_detener_tx.config(state=tk.DISABLED)
+        if self.audio_enmascarado_red is not None:
+            self.btn_play_mask.config(state=tk.NORMAL)
+        self._log_f4(f"\n✅ [EMISOR] ¡{total_pkts} datagramas enviados a {ip_dest}:{puerto}!")
+
     # ────────────────────────────────────────────────────────────
     # CONTROL DE TRANSMISIÓN LIVE (HILOS Y SOCKETS)
     # ────────────────────────────────────────────────────────────
@@ -767,15 +845,26 @@ class SDRModernApp(tk.Tk):
         self.transmision_en_curso = True
         self.detener_transmision_flag = False
 
+        rol = self.f4_modo_red.get()
+        ip_dest = self.f4_ip_dest.get().strip()
+        puerto = int(self.f4_puerto.get())
+        usar_mascara = bool(self.var_mascara.get())
+        modo_rt = bool(self.var_modo_rt.get())
+
         # Preparar botones y terminal
         self.btn_iniciar_tx.config(state=tk.DISABLED)
         self.btn_detener_tx.config(state=tk.NORMAL)
-        self.btn_play_mask.config(state=tk.DISABLED)
         self.btn_play_rec.config(state=tk.DISABLED)
 
         self.feed_terminal.config(state=tk.NORMAL)
         self.feed_terminal.delete("1.0", tk.END)
-        self.feed_terminal.insert(tk.END, "[TX] Iniciando emisor UDP...\n")
+        if rol == "LOCAL":
+            self.feed_terminal.insert(tk.END, f"[TX-LOCAL] Iniciando transmisión UDP en 127.0.0.1:{puerto}...\n")
+        elif rol == "EMISOR":
+            self.feed_terminal.insert(tk.END, f"[EMISOR] Enviando datagramas UDP hacia {ip_dest}:{puerto}...\n")
+        else:
+            self.feed_terminal.insert(tk.END, f"[RECEPTOR] Escuchando en 0.0.0.0:{puerto} (Tu IP: {self.ip_local})\n")
+            self.feed_terminal.insert(tk.END, f"           Esperando paquetes de tu compañera...\n")
         self.feed_terminal.config(state=tk.DISABLED)
 
         # Resetear métricas e historial
@@ -784,116 +873,207 @@ class SDRModernApp(tk.Tk):
         self.hist_jitter.clear()
         self.prog_tx["value"] = 0
 
-        # Preparar señal modulada FM
-        señal_a_modular = self.fm_mod
-        usar_mascara = self.var_mascara.get()
-        modo_rt = self.var_modo_rt.get()
+        bloques_tx = []
+        mask_flag = MASK_ON if usar_mascara else MASK_OFF
 
-        bloques_raw = trocear_señal(señal_a_modular, SAMPLES_PER_BLOCK)
-
-        if usar_mascara:
-            mask_flag = MASK_ON
-            bloques_tx = [aplicar_mascara(b, self.mascara, n_seq=i, bloque=SAMPLES_PER_BLOCK)
-                          for i, b in enumerate(bloques_raw)]
-            self.audio_enmascarado_red = np.concatenate(bloques_tx)
-        else:
-            mask_flag = MASK_OFF
-            bloques_tx = bloques_raw
-            self.audio_enmascarado_red = None
+        if rol in ("LOCAL", "EMISOR"):
+            bloques_raw = trocear_señal(self.fm_mod, SAMPLES_PER_BLOCK)
+            if usar_mascara:
+                bloques_tx = [aplicar_mascara(b, self.mascara, n_seq=i, bloque=SAMPLES_PER_BLOCK)
+                              for i, b in enumerate(bloques_raw)]
+                self.audio_enmascarado_red = np.concatenate(bloques_tx)
+            else:
+                bloques_tx = bloques_raw
+                self.audio_enmascarado_red = None
 
         # Resetear gráficas
         self._plot_red_inicial()
 
-        # Lanzar hilo en background
-        threading.Thread(target=self._hilo_transmision_live,
-                         args=(bloques_tx, mask_flag, modo_rt),
-                         daemon=True).start()
+        cfg = {
+            "rol": rol,
+            "ip_dest": ip_dest,
+            "puerto": puerto,
+            "bloques": bloques_tx,
+            "mask_flag": mask_flag,
+            "modo_rt": modo_rt,
+        }
+        threading.Thread(target=self._hilo_transmision_live, args=(cfg,), daemon=True).start()
 
     def _detener_transmision_live(self):
         if self.transmision_en_curso:
             self.detener_transmision_flag = True
+            self._log_f4("[SDR-NET] Deteniendo...")
 
-    def _hilo_transmision_live(self, bloques, mask_flag, modo_rt):
-        puerto = 5005
-        sock_rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock_rx.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
+    def _hilo_transmision_live(self, cfg):
+        sock_tx = None
+        sock_rx = None
         try:
-            sock_rx.bind(('127.0.0.1', puerto))
-        except Exception:
-            puerto = 5006
-            sock_rx.bind(('127.0.0.1', puerto))
+            rol = cfg["rol"]
+            puerto = cfg["puerto"]
+            bloques = cfg["bloques"]
+            mask_flag = cfg["mask_flag"]
+            modo_rt = cfg["modo_rt"]
 
-        sock_rx.settimeout(0.3)
-        sock_tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            paquetes_rx = {}
+            metricas = MetricasRed()
+            delay = (BLOCK_MS / 1000.0) if modo_rt else 0.0015
 
-        paquetes_rx = {}
-        metricas = MetricasRed()
-        total_bloques = len(bloques)
-        delay = (BLOCK_MS / 1000.0) if modo_rt else 0.0015
+            if rol in ("LOCAL", "RECEPTOR"):
+                sock_rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock_rx.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                bind_ip = "127.0.0.1" if rol == "LOCAL" else "0.0.0.0"
+                try:
+                    sock_rx.bind((bind_ip, puerto))
+                except Exception:
+                    puerto += 1
+                    sock_rx.bind((bind_ip, puerto))
+                sock_rx.settimeout(0.25)
 
-        for i, bloque in enumerate(bloques):
+            if rol in ("LOCAL", "EMISOR"):
+                sock_tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                ip_dest = "127.0.0.1" if rol == "LOCAL" else cfg["ip_dest"]
+                total_bloques = len(bloques)
+
+                for i, bloque in enumerate(bloques):
+                    if self.detener_transmision_flag:
+                        break
+
+                    t_tx = time.time()
+                    datagrama = empaquetar(bloque, n_seq=i, mod=MOD_FM, fc=int(FC), mask=mask_flag)
+                    sock_tx.sendto(datagrama, (ip_dest, puerto))
+
+                    if rol == "LOCAL":
+                        try:
+                            data, addr = sock_rx.recvfrom(4096)
+                            t_rx = time.time()
+                            pkt = desempaquetar(data)
+                            metricas.registrar_paquete(pkt, len(data))
+
+                            muestras = pkt['muestras']
+                            if pkt['mask'] == MASK_ON and self.mascara is not None:
+                                muestras = retirar_mascara(muestras, self.mascara, n_seq=pkt['seq'], bloque=SAMPLES_PER_BLOCK)
+
+                            paquetes_rx[pkt['seq']] = muestras
+                            retardo_ms = max(0.05, (t_rx - pkt['timestamp']) * 1000)
+
+                            actualizar_grafica = (i % 12 == 0) or (i == total_bloques - 1)
+                            log_line = (i == 0) or (i % 25 == 24) or (i == total_bloques - 1)
+                            self.cola_eventos.put(("PAQUETE", (
+                                i + 1, total_bloques, pkt['seq'], retardo_ms,
+                                metricas.jitter, len(data), pkt['mask'] == MASK_ON,
+                                muestras, actualizar_grafica, log_line
+                            )))
+                        except socket.timeout:
+                            pass
+                    else:
+                        # Modo EMISOR hacia otro PC
+                        actualizar_grafica = (i % 12 == 0) or (i == total_bloques - 1)
+                        log_line = (i == 0) or (i % 25 == 24) or (i == total_bloques - 1)
+                        self.cola_eventos.put(("PAQUETE", (
+                            i + 1, total_bloques, i, 0.0,
+                            0.0, len(datagrama), mask_flag == MASK_ON,
+                            bloque, actualizar_grafica, log_line
+                        )))
+
+                    t_transcurrido = time.time() - t_tx
+                    t_espera = max(0, delay - t_transcurrido)
+                    if t_espera > 0:
+                        time.sleep(t_espera)
+
+                if rol == "EMISOR" and not self.detener_transmision_flag:
+                    eof = empaquetar(np.zeros(4, dtype=np.float32), n_seq=0xFFFFFFFF, mod=MOD_FM, fc=int(FC), mask=mask_flag)
+                    for _ in range(3):
+                        sock_tx.sendto(eof, (ip_dest, puerto))
+                        time.sleep(0.02)
+                    self.cola_eventos.put(("F4_TX_FIN", (total_bloques, ip_dest, puerto)))
+                    return
+
+            elif rol == "RECEPTOR":
+                ultimo_t = None
+                total_est = 641
+                rx_raw_list = []
+
+                while not self.detener_transmision_flag:
+                    try:
+                        data, addr = sock_rx.recvfrom(4096)
+                        pkt = desempaquetar(data)
+                        if pkt['seq'] == 0xFFFFFFFF:
+                            break
+                        t_rx = time.time()
+                        if ultimo_t is None:
+                            self.cola_eventos.put(("F4_LOG", (f"[RX] ¡Recibiendo flujo desde {addr[0]}:{addr[1]}!",)))
+                        ultimo_t = t_rx
+
+                        metricas.registrar_paquete(pkt, len(data))
+                        rx_raw_list.append(pkt['muestras'])
+
+                        muestras = pkt['muestras']
+                        if pkt['mask'] == MASK_ON and self.mascara is not None:
+                            muestras = retirar_mascara(muestras, self.mascara, n_seq=pkt['seq'], bloque=SAMPLES_PER_BLOCK)
+
+                        paquetes_rx[pkt['seq']] = muestras
+                        retardo_ms = max(0.05, abs(t_rx - pkt['timestamp']) * 1000)
+                        if retardo_ms > 5000:
+                            retardo_ms = 1.5
+
+                        n_rx = len(paquetes_rx)
+                        actualizar_grafica = (n_rx % 12 == 0)
+                        log_line = (n_rx == 1) or (n_rx % 25 == 0)
+                        self.cola_eventos.put(("PAQUETE", (
+                            n_rx, max(total_est, n_rx), pkt['seq'], retardo_ms,
+                            metricas.jitter, len(data), pkt['mask'] == MASK_ON,
+                            muestras, actualizar_grafica, log_line
+                        )))
+                    except socket.timeout:
+                        if ultimo_t is not None and (time.time() - ultimo_t) > 1.8:
+                            break
+                        continue
+                    except ValueError:
+                        continue
+
+                if rx_raw_list:
+                    self.audio_enmascarado_red = np.concatenate(rx_raw_list)
+
             if self.detener_transmision_flag:
-                break
+                self.cola_eventos.put(("CANCEL", ()))
+                return
 
-            t_tx = time.time()
-            datagrama = empaquetar(bloque, n_seq=i, mod=MOD_FM, fc=int(FC), mask=mask_flag)
-            sock_tx.sendto(datagrama, ('127.0.0.1', puerto))
+            if paquetes_rx:
+                seqs_ordenadas = sorted(paquetes_rx.keys())
+                señal_fm_reensamblada = np.concatenate([paquetes_rx[s] for s in seqs_ordenadas])
+                audio_recuperado = demodular_fm(señal_fm_reensamblada)
+                resumen = metricas.resumen()
+                self.cola_eventos.put(("FIN", (audio_recuperado, resumen)))
+            else:
+                self.cola_eventos.put(("CANCEL", ()))
 
-            try:
-                data, addr = sock_rx.recvfrom(2048)
-                t_rx = time.time()
-                pkt = desempaquetar(data)
-                metricas.registrar_paquete(pkt, len(data))
-
-                muestras = pkt['muestras']
-                if pkt['mask'] == MASK_ON and self.mascara is not None:
-                    muestras = retirar_mascara(muestras, self.mascara, n_seq=pkt['seq'], bloque=SAMPLES_PER_BLOCK)
-
-                paquetes_rx[pkt['seq']] = muestras
-                retardo_ms = max(0.05, (t_rx - pkt['timestamp']) * 1000)
-
-                actualizar_grafica = (i % 8 == 0) or (i == total_bloques - 1)
-                self.cola_eventos.put(("PAQUETE", (
-                    i + 1, total_bloques, pkt['seq'], retardo_ms,
-                    metricas.jitter, len(data), pkt['mask'] == MASK_ON,
-                    muestras, actualizar_grafica
-                )))
-
-            except socket.timeout:
-                pass
-
-            t_transcurrido = time.time() - t_tx
-            t_espera = max(0, delay - t_transcurrido)
-            if t_espera > 0:
-                time.sleep(t_espera)
-
-        sock_tx.close()
-        sock_rx.close()
-
-        if paquetes_rx and not self.detener_transmision_flag:
-            seqs_ordenadas = sorted(paquetes_rx.keys())
-            señal_fm_reensamblada = np.concatenate([paquetes_rx[s] for s in seqs_ordenadas])
-            audio_recuperado = demodular_fm(señal_fm_reensamblada)
-            resumen = metricas.resumen()
-            self.cola_eventos.put(("FIN", (audio_recuperado, resumen)))
-        else:
-            self.cola_eventos.put(("CANCEL", ()))
+        except Exception as e:
+            self.cola_eventos.put(("F4_ERROR", (f"{type(e).__name__}: {e}",)))
+        finally:
+            if sock_tx is not None:
+                try:
+                    sock_tx.close()
+                except Exception:
+                    pass
+            if sock_rx is not None:
+                try:
+                    sock_rx.close()
+                except Exception:
+                    pass
 
     def _notificar_paquete_live(self, num_pkt, total_pkts, pkt_seq, retardo_ms,
                                 jitter_ms, tamaño_bytes, con_mascara, muestras_bloque,
-                                actualizar_grafica):
-        pct = (num_pkt / total_pkts) * 100
+                                actualizar_grafica, log_line=True):
+        pct = min(100.0, (num_pkt / max(1, total_pkts)) * 100)
         self.prog_tx["value"] = pct
 
-        # Terminal feed en vivo
-        estado_mask = "🔒 MASK" if con_mascara else "📡 RAW "
-        msg = f"[RX  5005] #{pkt_seq:03d} ({tamaño_bytes}B) | {retardo_ms:.2f}ms | Jit:{jitter_ms:.2f}ms | {estado_mask}\n"
-
-        self.feed_terminal.config(state=tk.NORMAL)
-        self.feed_terminal.insert(tk.END, msg)
-        self.feed_terminal.see(tk.END)
-        self.feed_terminal.config(state=tk.DISABLED)
+        if log_line:
+            estado_mask = "🔒 MASK" if con_mascara else "📡 RAW "
+            msg = f"[UDP] #{pkt_seq:03d} ({tamaño_bytes}B) | {retardo_ms:.2f}ms | Jit:{jitter_ms:.2f}ms | {estado_mask}\n"
+            self.feed_terminal.config(state=tk.NORMAL)
+            self.feed_terminal.insert(tk.END, msg)
+            self.feed_terminal.see(tk.END)
+            self.feed_terminal.config(state=tk.DISABLED)
 
         # KPIs
         self.lbl_kpi_pkts.config(text=f"{num_pkt}/{total_pkts} ({pct:.0f}%)")
@@ -908,15 +1088,14 @@ class SDRModernApp(tk.Tk):
         self.hist_jitter.append(jitter_ms)
 
         if actualizar_grafica:
-            # 1. Osciloscopio del datagrama actual
-            color_scope = "#ec4899" if con_mascara else COLOR_REC
-            self.line_scope.set_ydata(muestras_bloque)
-            self.line_scope.set_color(color_scope)
-            tipo_txt = "🔒 Con Máscara Musical Activa" if con_mascara else "📡 FM Pura"
-            self.ax_scope.set_title(f"Datagrama #{pkt_seq:03d} en Vivo ({len(muestras_bloque)} muestras) — {tipo_txt}",
-                                    color=TEXT_WHITE, fontsize=9, fontweight="bold")
+            if len(muestras_bloque) == SAMPLES_PER_BLOCK:
+                color_scope = "#ec4899" if con_mascara else COLOR_REC
+                self.line_scope.set_ydata(muestras_bloque)
+                self.line_scope.set_color(color_scope)
+                tipo_txt = "🔒 Con Máscara Musical Activa" if con_mascara else "📡 FM Pura"
+                self.ax_scope.set_title(f"Datagrama #{pkt_seq:03d} en Vivo ({len(muestras_bloque)} muestras) — {tipo_txt}",
+                                        color=TEXT_WHITE, fontsize=9, fontweight="bold")
 
-            # 2. Dinámica de red
             self.line_latencia.set_data(self.hist_seqs, self.hist_latencia)
             self.line_jitter.set_data(self.hist_seqs, self.hist_jitter)
 
@@ -932,8 +1111,7 @@ class SDRModernApp(tk.Tk):
         self.btn_iniciar_tx.config(state=tk.NORMAL)
         self.btn_detener_tx.config(state=tk.DISABLED)
         self.btn_play_rec.config(state=tk.NORMAL)
-        if self.audio_enmascarado_red is not None:
-            self.btn_play_mask.config(state=tk.NORMAL)
+        self.btn_play_mask.config(state=tk.NORMAL)
 
         # Mensaje final en terminal
         self.feed_terminal.config(state=tk.NORMAL)
@@ -942,17 +1120,18 @@ class SDRModernApp(tk.Tk):
         self.feed_terminal.see(tk.END)
         self.feed_terminal.config(state=tk.DISABLED)
 
-        # Mostrar gráfica final con la señal reensamblada completa
+        # Mostrar gráfica final en ventana con voz activa
         self.ax_scope.cla()
         self.ax_scope.set_facecolor("#0f172a")
         for spine in self.ax_scope.spines.values():
             spine.set_color("#334155")
 
-        n_p = min(len(self.voz), int(0.040 * FS))
-        t_ms = np.arange(n_p) / FS * 1000
+        i0, i1 = self._get_f5_voiced_slice()
+        i1 = min(i1, len(audio_recuperado))
+        t_ms = (np.arange(i0, i1) / FS) * 1000
 
-        self.ax_scope.plot(t_ms, self.voz[:n_p], color=COLOR_VOZ, alpha=0.45, lw=1.5, label="Voz Original")
-        self.ax_scope.plot(t_ms, audio_recuperado[:n_p], color=COLOR_REC, lw=1.1, label="Voz Reconstruida tras Red UDP")
+        self.ax_scope.plot(t_ms, self.voz[i0:i1], color=COLOR_VOZ, alpha=0.45, lw=1.5, label="Voz Original")
+        self.ax_scope.plot(t_ms, audio_recuperado[i0:i1], color=COLOR_REC, lw=1.1, label="Voz Reconstruida tras Red UDP")
         self.ax_scope.set_title("Transmision Completada: Voz Reconstruida tras Sockets UDP (0.0% Perdida)",
                                 color="#10b981", fontsize=10, fontweight="bold")
         self.ax_scope.set_xlabel("Tiempo (ms)", color=TEXT_MUTED, fontsize=8)
@@ -975,7 +1154,13 @@ class SDRModernApp(tk.Tk):
 
     def _reproducir_audio_enmascarado(self):
         if self.audio_enmascarado_red is not None:
-            self.reproducir_audio(self.audio_enmascarado_red)
+            sig = self.audio_enmascarado_red
+        elif self.mascara is not None:
+            sig = self.mascara[:len(self.voz)]
+        else:
+            return
+        self._log_f4("[🕵️ ESPÍA] Interceptando paquetes SIN clave: ¡Solo se escucha música 8-bits! La voz está oculta.")
+        self.reproducir_audio(sig)
 
     def _reproducir_audio_red(self):
         if self.audio_recibido_red is not None:
