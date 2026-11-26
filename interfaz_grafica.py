@@ -790,6 +790,7 @@ class SDRModernApp(tk.Tk):
             self.btn_rx_espia.config(state=tk.NORMAL)
         self.lbl_rx_estado.config(text="● Audio recibido", fg=COLOR_REC)
         perd = max(0, esperados - recibidos)
+        self.lbl_rx_kpi_pkts.config(text=f"{recibidos}/{esperados}")
         self.lbl_rx_kpi_perd.config(text=f"{perd}", fg=COLOR_ALERT if perd > 0 else COLOR_REC)
         self._rx_log(f"[OK] Recepción completada ({recibidos}/{esperados} bloques, {proto_txt}).")
 
@@ -853,6 +854,7 @@ class SDRModernApp(tk.Tk):
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
             sock.bind(("0.0.0.0", puerto))
             sock.settimeout(0.25)
 
@@ -924,7 +926,7 @@ class SDRModernApp(tk.Tk):
                 return
 
             seq_min, seq_max = min(bloques_rx.keys()), max(bloques_rx.keys())
-            esperados = seq_max - seq_min + 1
+            esperados = max(total_est, seq_max - seq_min + 1) if proto == "F5" else (seq_max - seq_min + 1)
             partes = []
             for s in range(seq_min, seq_max + 1):
                 if s in bloques_rx:
@@ -1522,6 +1524,7 @@ class SDRModernApp(tk.Tk):
             if rol in ("LOCAL", "RECEPTOR"):
                 sock_rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 sock_rx.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock_rx.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
                 bind_ip = "127.0.0.1" if rol == "LOCAL" else "0.0.0.0"
                 try:
                     sock_rx.bind((bind_ip, puerto))
@@ -2214,6 +2217,7 @@ class SDRModernApp(tk.Tk):
             if rol in ("LOCAL", "RECEPTOR"):
                 sock_rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 sock_rx.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock_rx.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
                 bind_ip = "127.0.0.1" if rol == "LOCAL" else "0.0.0.0"
                 try:
                     sock_rx.bind((bind_ip, puerto))
@@ -2284,7 +2288,7 @@ class SDRModernApp(tk.Tk):
                         self.cola_eventos.put(("F5_PAQUETE", (
                             seq, total_bloques, modo, 0.0, 0.0, len(datagrama), log_line
                         )))
-                        time.sleep(0.004)
+                        time.sleep(0.010)
 
                 # Enviar marcador de fin en modo EMISOR
                 if rol == "EMISOR" and not self.f5_detener_flag:
