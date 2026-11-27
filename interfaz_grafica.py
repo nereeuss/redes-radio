@@ -2592,223 +2592,250 @@ class SDRModernApp(tk.Tk):
         self._on_voz_actualizada(voz, "audio_original.wav")
 
     # ────────────────────────────────────────────────────────────
-    # PESTAÑA 6: ARQUITECTURA POR CAPAS Y PROTOCOLO PROPIO SDR
+    # PESTAÑA 6: ARQUITECTURA DE RED Y PROTOCOLO PROPIO (VISUAL)
     # ────────────────────────────────────────────────────────────
     def _crear_tab_protocolo(self):
-        paned = tk.PanedWindow(self.tab_proto, orient=tk.HORIZONTAL, bg=BG_DARK, bd=0, sashwidth=4)
-        paned.pack(fill=tk.BOTH, expand=True, pady=5)
+        # Contenedor principal con scroll suave y aire
+        sc_canvas = tk.Canvas(self.tab_proto, bg=BG_DARK, highlightthickness=0, bd=0)
+        sc_canvas.pack(fill=tk.BOTH, expand=True)
 
-        izq = self._crear_panel_izq_scroll(paned, width=445)
+        cont = tk.Frame(sc_canvas, bg=BG_DARK, padx=20, pady=14)
+        win = sc_canvas.create_window((0, 0), window=cont, anchor="nw")
+        cont.bind("<Configure>", lambda e: sc_canvas.configure(scrollregion=sc_canvas.bbox("all")))
+        sc_canvas.bind("<Configure>", lambda e: sc_canvas.itemconfig(win, width=e.width))
 
-        tk.Label(izq, text="Protocolo propio y sistema de capas", font=("Segoe UI", 12, "bold"),
-                 fg=TEXT_WHITE, bg=BG_DARK).pack(anchor="w")
-        tk.Label(
-            izq,
-            text="Guía visual interactiva para explicar qué parte es capa física simulada, qué es transporte UDP y cómo viaja vuestra cabecera binaria.",
-            font=("Segoe UI", 8), fg=TEXT_SEC, bg=BG_DARK, wraplength=400, justify="left"
-        ).pack(anchor="w", pady=(2, 8))
-
-        # Paso 1: Elegir protocolo del proyecto a inspeccionar
         self.proto_sel = tk.StringVar(value="SDR5")
-        c1 = self._crear_tarjeta(izq, "Paso 1 · Protocolo propio a mostrar", estado="Cabecera", pady=5)
+        self.proto_campo_sel = tk.StringVar(value="MAGIC")
+
+        # ── Cabecera + Toggle rápido Fase 4 vs Fase 5 ──
+        hdr = tk.Frame(cont, bg=BG_DARK)
+        hdr.pack(fill=tk.X, pady=(0, 10))
+
+        tit_box = tk.Frame(hdr, bg=BG_DARK)
+        tit_box.pack(side=tk.LEFT)
+        tk.Label(tit_box, text="Arquitectura de Red y Protocolo Propio",
+                 font=("Segoe UI", 13, "bold"), fg=TEXT_WHITE, bg=BG_DARK).pack(anchor="w")
+        tk.Label(tit_box, text="Esquema visual en vivo · Pasa el ratón o haz clic en cada bloque para inspeccionarlo",
+                 font=("Segoe UI", 8), fg=TEXT_SEC, bg=BG_DARK).pack(anchor="w")
+
+        tog_box = tk.Frame(hdr, bg=BG_CARD, highlightbackground=BORDER_CARD, highlightthickness=1, padx=6, pady=4)
+        tog_box.pack(side=tk.RIGHT)
         for txt, val in [
-            ("Fase 5 · Protocolo SDR5 (31 B: AM/FM en vivo)", "SDR5"),
-            ("Fase 4 · Protocolo SDR1 (22 B: UDP + Máscara)", "SDR1"),
-            ("Estándar · CabeceraSDR (27 B: protocolo_sdr.py)", "SDRM"),
+            ("Fase 5 · SDR5 (31 B)", "SDR5"),
+            ("Fase 4 · SDR1 (22 B)", "SDR1"),
+            ("Estándar · SDRM (27 B)", "SDRM"),
         ]:
             tk.Radiobutton(
-                c1, text=txt, variable=self.proto_sel, value=val,
-                command=self._dibujar_diagrama_proto, font=("Segoe UI", 8, "bold"),
+                tog_box, text=txt, variable=self.proto_sel, value=val,
+                command=self._actualizar_vista_proto, font=("Segoe UI", 8, "bold"),
                 fg=TEXT_WHITE, bg=BG_CARD, selectcolor=BG_CARD,
-                activebackground=BG_CARD, activeforeground=ACCENT
-            ).pack(anchor="w", pady=2)
+                activebackground=BG_CARD, activeforeground=ACCENT, padx=6
+            ).pack(side=tk.LEFT)
 
-        # Paso 2: Desglose de tamaño MTU
-        c2 = self._crear_tarjeta(izq, "Paso 2 · Tamaño total frente a MTU (1500 B)", estado="Sin fragmentar", pady=5)
-        self.lbl_proto_mtu = tk.Label(
-            c2, text="", font=("Segoe UI", 8), fg=TEXT_SEC, bg=BG_CARD, justify="left", wraplength=390
-        )
-        self.lbl_proto_mtu.pack(anchor="w")
+        # ── 1. BARRA PROPORCIONAL DE ENCAPSULACIÓN Y LÍMITE MTU ──
+        c_mtu = self._crear_tarjeta(cont, "1. Encapsulación y límite físico MTU (1.500 B Ethernet / Wi-Fi)",
+                                    estado="● Sin fragmentación IP (1 bloque = 1 paquete)", acento=COLOR_REC, pady=5)
 
-        # Paso 3: Preguntas rápidas de defensa oral
-        c3 = self._crear_tarjeta(izq, "Paso 3 · Respuestas rápidas para defensa", estado="4 claves", pady=5)
-        f_q = tk.Frame(c3, bg=BG_CARD)
-        f_q.pack(fill=tk.X, pady=(0, 8))
+        self.canvas_mtu = tk.Canvas(c_mtu, bg=BG_CARD, height=92, highlightthickness=0, bd=0)
+        self.canvas_mtu.pack(fill=tk.X, pady=(2, 4))
+        self.canvas_mtu.bind("<Configure>", lambda e: self._dibujar_barra_mtu())
 
-        temas = [
-            ("UDP vs TCP", "UDP"),
-            ("Capas Física/Red", "CAPAS"),
-            ("Bloque 512 / MTU", "MTU"),
-            ("Pérdidas y PLC", "PLC"),
+        self.lbl_mtu_resumen = tk.Label(c_mtu, text="", font=("Segoe UI", 8, "bold"), fg=TEXT_SEC, bg=BG_CARD)
+        self.lbl_mtu_resumen.pack(anchor="w")
+
+        # ── 2. ANATOMÍA INTERACTIVA DE LA CABECERA BINARIA (struct.pack Big-Endian '!') ──
+        c_hdr = self._crear_tarjeta(cont, "2. Anatomía interactiva de la cabecera binaria (Big-Endian '!')",
+                                    estado="Pasa el ratón por cada celda", acento=ACCENT, pady=5)
+
+        self.f_rfc_celdas = tk.Frame(c_hdr, bg=BG_CARD)
+        self.f_rfc_celdas.pack(fill=tk.X, pady=(2, 8))
+
+        self.rfc_specs = [
+            ("MAGIC", "Magic (SDR5 / SDR1)", "#4F46E5"),
+            ("SEQ", "Seq (1, 2, 3...)", "#4338CA"),
+            ("TS", "Timestamp (ms)", "#475569"),
+            ("CFG", "Config / Flags", "#059669"),
+            ("PAY", "Payload (float32 ➔ int16)", "#0F172A"),
         ]
-        for idx, (label, key) in enumerate(temas):
-            b = ttk.Button(f_q, text=label, style="Blue.TButton",
-                           command=lambda k=key: self._seleccionar_tema_defensa(k))
-            b.grid(row=idx // 2, column=idx % 2, sticky="ew", padx=3, pady=3)
-        f_q.grid_columnconfigure(0, weight=1)
-        f_q.grid_columnconfigure(1, weight=1)
+        self.rfc_botones = {}
+        for idx, (key, title, col) in enumerate(self.rfc_specs):
+            cell = tk.Frame(self.f_rfc_celdas, bg=col, padx=10, pady=10, cursor="hand2")
+            cell.grid(row=0, column=idx, sticky="nsew", padx=3)
+            self.f_rfc_celdas.grid_columnconfigure(idx, weight=1)
+            lbl_t = tk.Label(cell, text=title, font=("Segoe UI", 8, "bold"), fg="white", bg=col, cursor="hand2")
+            lbl_t.pack()
+            lbl_s = tk.Label(cell, text="", font=("Segoe UI", 7), fg="#E2E8F0", bg=col, cursor="hand2")
+            lbl_s.pack(pady=(2, 0))
+            self.rfc_botones[key] = (cell, lbl_t, lbl_s)
+            for w_bind in (cell, lbl_t, lbl_s):
+                w_bind.bind("<Enter>", lambda e, k=key: self._seleccionar_celda_proto(k))
+                w_bind.bind("<Button-1>", lambda e, k=key: self._seleccionar_celda_proto(k))
 
-        box_resp = tk.Frame(c3, bg=BG_INNER, padx=10, pady=10)
-        box_resp.pack(fill=tk.X)
-        self.lbl_def_titulo = tk.Label(box_resp, text="", font=("Segoe UI", 9, "bold"),
-                                       fg=ACCENT, bg=BG_INNER)
-        self.lbl_def_titulo.pack(anchor="w")
-        self.lbl_def_texto = tk.Label(box_resp, text="", font=("Segoe UI", 8),
-                                      fg=TEXT_WHITE, bg=BG_INNER, wraplength=370, justify="left")
-        self.lbl_def_texto.pack(anchor="w", pady=(4, 0))
+        inspector = tk.Frame(c_hdr, bg=BG_INNER, padx=12, pady=9)
+        inspector.pack(fill=tk.X)
+        f_ins_top = tk.Frame(inspector, bg=BG_INNER)
+        f_ins_top.pack(fill=tk.X)
+        self.lbl_ins_titulo = tk.Label(f_ins_top, text="", font=("Segoe UI", 9, "bold"), fg=ACCENT, bg=BG_INNER)
+        self.lbl_ins_titulo.pack(side=tk.LEFT)
+        self.lbl_ins_badge = tk.Label(f_ins_top, text="", font=("Segoe UI", 8, "bold"), fg=COLOR_REC, bg=BG_INNER)
+        self.lbl_ins_badge.pack(side=tk.RIGHT)
+        self.lbl_ins_desc = tk.Label(inspector, text="", font=("Segoe UI", 8), fg=TEXT_WHITE, bg=BG_INNER, anchor="w")
+        self.lbl_ins_desc.pack(anchor="w", pady=(3, 0))
 
-        # Panel Derecho: Lienzo visual limpio en Blanco Puro (#FFFFFF)
-        der = tk.Frame(paned, bg=BG_DARK, padx=10, pady=10)
-        paned.add(der, minsize=520)
+        # ── 3. TARJETAS DE DECISIONES DE TRANSPORTE Y FLUJO (3 MICRO-TARJETAS) ──
+        f_kpis = tk.Frame(cont, bg=BG_DARK)
+        f_kpis.pack(fill=tk.X, pady=4)
+        for i in range(3):
+            f_kpis.grid_columnconfigure(i, weight=1, uniform="kpi3")
 
-        card_vis = tk.Frame(der, bg=BG_CARD, highlightbackground=BORDER_CARD, highlightthickness=1)
-        card_vis.pack(fill=tk.BOTH, expand=True)
+        col1 = tk.Frame(f_kpis, bg=BG_DARK)
+        col1.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        k1 = self._crear_tarjeta(col1, "UDP (SOCK_DGRAM) vs TCP", estado="Transporte", pady=0)
+        tk.Label(k1, text="● Baja latencia — Cero Head-of-Line Blocking", font=("Segoe UI", 8, "bold"),
+                 fg=COLOR_REC, bg=BG_CARD).pack(anchor="w")
+        tk.Label(k1, text="Sin esperas por ACK ni bloqueos si cae un bloque.", font=("Segoe UI", 8),
+                 fg=TEXT_SEC, bg=BG_CARD, wraplength=260, justify="left").pack(anchor="w", pady=(3, 0))
 
-        self.canvas_proto = tk.Canvas(card_vis, bg=BG_CARD, highlightthickness=0, bd=0)
-        self.canvas_proto.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
-        self.canvas_proto.bind("<Configure>", lambda e: self._dibujar_diagrama_proto())
+        col2 = tk.Frame(f_kpis, bg=BG_DARK)
+        col2.grid(row=0, column=1, sticky="nsew", padx=3)
+        k2 = self._crear_tarjeta(col2, "Conectividad PC a PC", estado="Red IP", pady=0)
+        tk.Label(k2, text=f"● IP real: {self.ip_local} (sin VMware)", font=("Segoe UI", 8, "bold"),
+                 fg=ACCENT, bg=BG_CARD).pack(anchor="w")
+        tk.Label(k2, text="Receptor escucha en 0.0.0.0:5005 / 5018.", font=("Segoe UI", 8),
+                 fg=TEXT_SEC, bg=BG_CARD, wraplength=260, justify="left").pack(anchor="w", pady=(3, 0))
 
-        self._seleccionar_tema_defensa("CAPAS")
+        col3 = tk.Frame(f_kpis, bg=BG_DARK)
+        col3.grid(row=0, column=2, sticky="nsew", padx=(6, 0))
+        k3 = self._crear_tarjeta(col3, "Control de Flujo y Socket", estado="Estabilidad", pady=0)
+        tk.Label(k3, text="● Pacing: 10 ms/paquete (sin ráfagas)", font=("Segoe UI", 8, "bold"),
+                 fg=COLOR_REC, bg=BG_CARD).pack(anchor="w")
+        tk.Label(k3, text="● SO_RCVBUF: 1 MB (anti-desbordamiento).", font=("Segoe UI", 8, "bold"),
+                 fg=TEXT_SEC, bg=BG_CARD).pack(anchor="w", pady=(3, 0))
 
-    def _seleccionar_tema_defensa(self, clave: str):
-        info = {
-            "UDP": (
-                "¿Por qué UDP y no TCP?",
-                "En radio y voz en tiempo real prima la continuidad frente a la retransmisión. "
-                "TCP frena toda la reproducción esperando acuses de recibo (ACK) si cae un paquete. "
-                "UDP envía sin conexión (8 B de cabecera) y si falta un bloque de 10 ms, el receptor lo disimula con PLC."
-            ),
-            "CAPAS": (
-                "¿Qué es Capa Física y qué es Transporte?",
-                "• Capa Física (simulada en Python): muestreo a 48 kHz, modulación AM/FM sobre portadora de 8–10 kHz, ruido y demodulación.\n"
-                "• Capa de Aplicación: vuestra cabecera binaria propia (SDR5/SDR1/SDRM) y serialización int16.\n"
-                "• Capa de Transporte: sockets UDP (puertos 5005/5018) sobre IPv4 y Wi-Fi real."
-            ),
-            "MTU": (
-                "¿Por qué bloques de 512 muestras?",
-                "512 muestras en int16 son 1.024 bytes. Sumando cabecera SDR (~31 B), UDP (8 B) e IP (20 B), "
-                "el paquete completo ocupa ~1.083 bytes, por debajo de los 1.500 bytes de MTU de Ethernet/Wi-Fi. "
-                "Así viaja en una sola trama sin fragmentarse en IP."
-            ),
-            "PLC": (
-                "¿Cómo detectáis pérdidas y desorden?",
-                "Cada datagrama lleva un número correlativo (sequence) y un timestamp en Big-Endian (!). "
-                "El receptor ordena por sequence, mide el jitter (RFC 3550) con timestamp y, si falta algún bloque, "
-                "aplica PLC (repetición atenuada) para evitar cortes bruscos."
-            ),
-        }
-        titulo, texto = info.get(clave, info["CAPAS"])
-        self.lbl_def_titulo.config(text=titulo)
-        self.lbl_def_texto.config(text=texto)
+        # ── 4. BANNER DE RESUMEN EJECUTIVO (PIE DE VISTA) ──
+        c_res = self._crear_tarjeta(cont, "Síntesis para la defensa oral", estado="● Listo", acento=ACCENT, pady=6)
+        tk.Label(
+            c_res,
+            text="\"Usamos UDP/IP como transporte de baja latencia respetando la MTU de 1500 B sin fragmentación IP, "
+                 "y encima hemos diseñado nuestro protocolo binario propio en Big-Endian para numerar bloques, "
+                 "detectar pérdidas (PLC), medir jitter y avisar al receptor de la modulación y cifrado.\"",
+            font=("Segoe UI", 9, "italic"), fg=TEXT_WHITE, bg=BG_CARD, wraplength=920, justify="left"
+        ).pack(anchor="w")
 
-    def _dibujar_diagrama_proto(self):
-        c = self.canvas_proto
+        self._actualizar_vista_proto()
+
+    def _actualizar_vista_proto(self):
+        self._dibujar_barra_mtu()
+        self._seleccionar_celda_proto(self.proto_campo_sel.get())
+
+    def _dibujar_barra_mtu(self):
+        c = self.canvas_mtu
         c.delete("all")
         w = c.winfo_width()
-        h = c.winfo_height()
-        if w < 200 or h < 200:
+        if w < 220:
             return
 
         modo = self.proto_sel.get()
         if modo == "SDR5":
-            hdr_len, payload_len = 31, 1024
-            campos = [
-                ("magic\n4B 'SDR5'", 0.12, ACCENT),
-                ("seq\n4B", 0.09, "#6366F1"),
-                ("total\n4B", 0.09, "#6366F1"),
-                ("timestamp\n8B double", 0.16, "#475569"),
-                ("mod\n1B", 0.08, COLOR_REC),
-                ("fc\n4B", 0.09, "#475569"),
-                ("ka/kf\n4B", 0.10, "#475569"),
-                ("len\n2B", 0.07, "#64748B"),
-                ("PAYLOAD\n512 muestras int16 (1024 B)", 0.20, "#0F172A"),
-            ]
-            sub = "Cabecera SDR5 (31 B, Big-Endian '!4sIIdBffH') + Audio Modulado AM/FM"
+            hdr_sdr, pay_b, lbl_sdr = 31, 1024, "SDR5: 31 B"
         elif modo == "SDR1":
-            hdr_len, payload_len = 22, 960
-            campos = [
-                ("magic\n4B 'SDR1'", 0.14, ACCENT),
-                ("seq\n4B", 0.11, "#6366F1"),
-                ("timestamp\n8B double", 0.20, "#475569"),
-                ("mod\n1B", 0.09, COLOR_REC),
-                ("fc\n2B", 0.09, "#475569"),
-                ("mask\n1B", 0.09, "#059669"),
-                ("n\n2B", 0.08, "#64748B"),
-                ("PAYLOAD\n480 muestras int16 (960 B)", 0.20, "#0F172A"),
-            ]
-            sub = "Cabecera SDR1 (22 B, Big-Endian) + Señal FM con/sin Máscara Musical"
+            hdr_sdr, pay_b, lbl_sdr = 22, 960, "SDR1: 22 B"
         else:
-            hdr_len, payload_len = 27, 1024
-            campos = [
-                ("magic\n4B 'SDRM'", 0.13, ACCENT),
-                ("ver/flg/ch/mod/dt\n5B", 0.17, "#6366F1"),
-                ("samples\n4B", 0.11, "#475569"),
-                ("fs\n4B", 0.10, "#475569"),
-                ("seq\n4B", 0.10, COLOR_REC),
-                ("timestamp\n8B", 0.15, "#475569"),
-                ("PAYLOAD\nMuestras PCM (1024 B)", 0.20, "#0F172A"),
-            ]
-            sub = "CabeceraSDR estándar (27 B, Big-Endian '!4sBBBBBIIId') en protocolo_sdr.py"
+            hdr_sdr, pay_b, lbl_sdr = 27, 1024, "SDRM: 27 B"
 
-        total_ip = 20 + 8 + hdr_len + payload_len
-        self.lbl_proto_mtu.config(
-            text=f"• Cabecera IP (20 B) + UDP (8 B) + SDR ({hdr_len} B) + Audio ({payload_len} B)\n"
-                 f"• Total por paquete: {total_ip} bytes  (< 1500 B MTU Ethernet → Sin fragmentación)\n"
-                 f"• Formato binario: Big-Endian ('!') para compatibilidad entre cualquier PC."
+        total = 20 + 8 + hdr_sdr + pay_b
+        max_escala = 1620.0
+        pad_l, pad_r = 10, 14
+        usable_w = w - pad_l - pad_r
+
+        def x_de(b):
+            return pad_l + (b / max_escala) * usable_w
+
+        # Fondo guía hasta 1500 B
+        y1, y2 = 24, 62
+        x_mtu = x_de(1500)
+        c.create_rectangle(pad_l, y1, x_mtu, y2, fill=BG_INNER, outline=BORDER_CARD, width=1)
+
+        bloques = [
+            (20, "IP 20B", "#64748B"),
+            (8, "UDP", "#475569"),
+            (hdr_sdr, lbl_sdr, ACCENT),
+            (pay_b, f"Carga útil Audio ({pay_b} B)", COLOR_REC),
+        ]
+        b_acum = 0
+        for size_b, txt, col in bloques:
+            xa = x_de(b_acum)
+            xb = x_de(b_acum + size_b)
+            # Ancho visual mínimo para que las cabeceras pequeñas sean legibles
+            if xb - xa < 44 and size_b < 50:
+                xb = xa + 44
+            c.create_rectangle(xa, y1, xb, y2, fill=col, outline=BG_CARD, width=1.5)
+            if xb - xa >= 40:
+                c.create_text((xa + xb) / 2, (y1 + y2) / 2, text=txt,
+                              font=("Segoe UI", 7, "bold"), fill="white")
+            b_acum += size_b
+
+        # Línea vertical límite MTU 1500 B
+        c.create_line(x_mtu, 10, x_mtu, 78, fill=COLOR_ALERT, width=2, dash=(4, 3))
+        c.create_text(x_mtu - 4, 8, text="Límite MTU = 1.500 B", anchor="ne",
+                      font=("Segoe UI", 8, "bold"), fill=COLOR_ALERT)
+        c.create_text(x_de(total), 76, text=f"Total enviado: {total} B", anchor="e",
+                      font=("Segoe UI", 8, "bold"), fill=COLOR_REC)
+
+        self.lbl_mtu_resumen.config(
+            text=f"[ IP: 20 B ] + [ UDP: 8 B ] + [ {lbl_sdr} ] + [ Audio int16: {pay_b} B ] = {total} Bytes totales  "
+                 f"(Margen libre: {1500 - total} B)"
         )
 
-        # ── SECCIÓN SUPERIOR: SISTEMA DE 4 CAPAS ──
-        c.create_text(10, 12, text="1. Arquitectura por capas (Encapsulación Emisor ➔ Red ➔ Receptor)",
-                      anchor="w", font=("Segoe UI", 10, "bold"), fill=TEXT_WHITE)
+    def _seleccionar_celda_proto(self, key: str):
+        self.proto_campo_sel.set(key)
+        modo = self.proto_sel.get()
+        fc_val = int(self.f5_fc.get()) if hasattr(self, "f5_fc") else 10000
+        modo_mod = self.f5_modo.get() if hasattr(self, "f5_modo") else "FM"
+        mask_txt = "ON (8-bits)" if (hasattr(self, "var_mascara") and self.var_mascara.get()) else "OFF"
+        n_pkts = max(1, len(self.voz) // 512 + 1)
 
-        capas = [
-            ("Capa 4 · Aplicación + Física Simulada (Python)",
-             "Voz 48 kHz  ➔  Modulación AM/FM (8-10 kHz)  ➔  Cabecera propia SDR (" + str(hdr_len) + " B) + Audio int16",
-             "#EEF2FF", ACCENT, ACCENT),
-            ("Capa 3 · Transporte (UDP — Puertos 5005 / 5018)",
-             "Socket SOCK_DGRAM (+8 B cabecera UDP) · Sin conexión, sin esperas por retransmisión",
-             "#F1F5F9", "#475569", TEXT_WHITE),
-            ("Capa 2 · Red (IPv4 — IP Emisor ➔ IP Receptor)",
-             f"Cabecera IP (+20 B) · Paquete total = {total_ip} B (< 1500 B MTU, viaja íntegro sin fragmentar)",
-             "#F1F5F9", "#475569", TEXT_WHITE),
-            ("Capa 1 · Enlace y Física Real (Wi-Fi / Ethernet)",
-             "Trama MAC + CRC-32 ➔ Ondas Wi-Fi reales entre los dos portátiles",
-             "#ECFDF5", COLOR_REC, COLOR_REC),
-        ]
+        subs = {
+            "MAGIC": f"4 B ('{modo}')",
+            "SEQ": f"1 .. {n_pkts}",
+            "TS": "8 B double",
+            "CFG": f"{modo_mod} · {fc_val}Hz",
+            "PAY": "-50% tráfico",
+        }
+        for k, (cell, lbl_t, lbl_s) in self.rfc_botones.items():
+            lbl_s.config(text=subs[k])
 
-        y = 42
-        box_h = max(46, min(62, int((h * 0.48 - 40) / 4)))
-        for idx, (tit, desc, bg_c, bd_c, tit_c) in enumerate(capas):
-            c.create_rectangle(14, y, w - 14, y + box_h, fill=bg_c, outline=bd_c, width=1.2)
-            c.create_text(28, y + 14, text=tit, anchor="w", font=("Segoe UI", 9, "bold"), fill=tit_c)
-            c.create_text(28, y + 32, text=desc, anchor="w", font=("Segoe UI", 8), fill=TEXT_SEC)
-            if idx < len(capas) - 1:
-                cy = y + box_h + 7
-                c.create_line(w // 2, y + box_h, w // 2, cy + 5, fill="#94A3B8", width=1.5, arrow=tk.LAST)
-            y += box_h + 14
-
-        # ── SECCIÓN INFERIOR: DIAGRAMA DE BYTES DEL PROTOCOLO PROPIO ──
-        y_pkt = max(y + 12, int(h * 0.58))
-        c.create_text(10, y_pkt, text=f"2. Anatomía de vuestro protocolo propio ({modo})",
-                      anchor="w", font=("Segoe UI", 10, "bold"), fill=TEXT_WHITE)
-        c.create_text(10, y_pkt + 20, text=sub, anchor="w", font=("Segoe UI", 8), fill=TEXT_SEC)
-
-        y_bar = y_pkt + 42
-        bar_h = min(78, max(54, h - y_bar - 34))
-        x_cur = 14
-        usable_w = w - 28
-        for label, frac, col in campos:
-            cw = max(46, int(usable_w * frac))
-            if x_cur + cw > w - 14:
-                cw = (w - 14) - x_cur
-            c.create_rectangle(x_cur, y_bar, x_cur + cw, y_bar + bar_h, fill=col, outline=BG_CARD, width=1.5)
-            c.create_text(x_cur + cw / 2, y_bar + bar_h / 2, text=label,
-                          font=("Segoe UI", 7, "bold"), fill="white", justify="center")
-            x_cur += cw
-
-        c.create_text(14, y_bar + bar_h + 14,
-                      text="← Cabecera propia (orden, tiempo y modo)          Carga útil (muestras de voz moduladas) →",
-                      anchor="w", font=("Segoe UI", 8), fill=TEXT_SEC)
+        detalles = {
+            "MAGIC": (
+                f"Magic ({modo}) — Filtro anti-ruido",
+                "● 4 bytes Big-Endian",
+                f"Identifica paquetes auténticos ('{modo}'). Descarta al instante tráfico ajeno o ruido en el puerto."
+            ),
+            "SEQ": (
+                "Sequence (1, 2, 3...) — Orden y PLC",
+                f"● 1 .. {n_pkts} bloques",
+                "Numera cada bloque para reordenar si llegan cruzados y activar PLC (repetición atenuada) si hay pérdidas."
+            ),
+            "TS": (
+                "Timestamp — Retardo y Jitter (RFC 3550)",
+                "● Precisión en ms",
+                "Marca temporal de emisión en segundos (double 8 B). Permite medir latencia y jitter suavizado en el receptor."
+            ),
+            "CFG": (
+                "Config / Flags — Zero-Config en Receptor",
+                f"● {modo_mod} · fc={fc_val} Hz · Mask {mask_txt}",
+                "Incluye mod, fc, ka/kf, mask y m_code=99 (fin): el receptor autodetecta todo sin configurarlo a mano."
+            ),
+            "PAY": (
+                "Payload (float32 ➔ int16) — Compresión 50%",
+                "● Ahorro 50% (~768 kbps)",
+                "Convierte muestras de 4 B a PCM 2 B antes de enviar por socket, reduciendo a la mitad el ancho de banda."
+            ),
+        }
+        tit, badge, desc = detalles[key]
+        self.lbl_ins_titulo.config(text=tit)
+        self.lbl_ins_badge.config(text=badge)
+        self.lbl_ins_desc.config(text=desc)
 
     def _configurar_toolbar(self, canvas, parent):
         # Barra de herramientas oculta para mantener estética limpia y moderna
