@@ -1006,16 +1006,16 @@ class SDRModernApp(tk.Tk):
         self.notebook.add(self.tab_am, text="  1. Modulación AM  ")
         self.notebook.add(self.tab_fm, text="  2. Modulación FM  ")
         self.notebook.add(self.tab_ruido, text="  3. AM vs FM (Ruido)  ")
-        self.notebook.add(self.tab_red, text="  4. Red UDP & Espía  ")
-        self.notebook.add(self.tab_fase5, text="  5. Radio AM/FM en Red  ")
-        self.notebook.add(self.tab_proto, text="  6. Protocolo y Capas  ")
+        self.notebook.add(self.tab_proto, text="  4. Protocolo y Capas  ")
+        self.notebook.add(self.tab_red, text="  5. Red UDP & Espía  ")
+        self.notebook.add(self.tab_fase5, text="  6. Radio AM/FM en Red  ")
 
         self._crear_tab_am()
         self._crear_tab_fm()
         self._crear_tab_ruido()
+        self._crear_tab_protocolo()
         self._crear_tab_red()
         self._crear_tab_fase5()
-        self._crear_tab_protocolo()
 
     # ────────────────────────────────────────────────────────────
     # PESTAÑA 1: AM PASO A PASO
