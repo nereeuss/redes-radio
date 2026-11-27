@@ -1272,7 +1272,8 @@ class SDRModernApp(tk.Tk):
 
         self.var_mascara = tk.BooleanVar(value=True)
         chk_mask = tk.Checkbutton(f_cfg, text="Cifrado musical (esteganografía)",
-                                  variable=self.var_mascara, font=("Segoe UI", 8, "bold"),
+                                  variable=self.var_mascara, command=self._on_f4_mask_change,
+                                  font=("Segoe UI", 8, "bold"),
                                   fg="#4F46E5", bg=BG_CARD, selectcolor=BG_CARD,
                                   activebackground=BG_CARD, activeforeground="#4F46E5")
         chk_mask.pack(side=tk.LEFT)
@@ -1283,6 +1284,12 @@ class SDRModernApp(tk.Tk):
                                 fg=TEXT_WHITE, bg=BG_CARD, selectcolor=BG_CARD,
                                 activebackground=BG_CARD, activeforeground=TEXT_WHITE)
         chk_rt.pack(side=tk.RIGHT)
+
+        self.lbl_estado_mask = tk.Label(
+            card_ctrl, text="● Tráfico camuflado (Máscara musical ON)",
+            font=("Segoe UI", 8, "bold"), fg=ACCENT, bg=BG_CARD
+        )
+        self.lbl_estado_mask.pack(anchor="w", pady=(0, 6))
 
         f_btns = tk.Frame(card_ctrl, bg=BG_CARD)
         f_btns.pack(fill=tk.X)
@@ -1327,20 +1334,28 @@ class SDRModernApp(tk.Tk):
             lbl.pack()
             setattr(self, attr, lbl)
 
-        # Tarjeta 4: Verificación Auditiva + Demo Interceptor
-        card_audio = self._crear_tarjeta(izq, " Paso 4 · Espía vs Receptor ", acento="#4F46E5", pady=4)
+        # Tarjeta 4: Auditoría de Interceptación (Sniffer vs Receptor)
+        card_audio = self._crear_tarjeta(izq, " Paso 4 · Auditoría de Interceptación (Sniffer) ", acento="#4F46E5", pady=4)
 
-        tk.Label(card_audio, text="Enseña al profesor qué oye un atacante sin clave vs el receptor legítimo:",
-                 font=("Segoe UI", 7), fg=TEXT_SEC, bg=BG_CARD, justify="left", wraplength=390).pack(anchor="w", pady=(0, 4))
+        f_caminos = tk.Frame(card_audio, bg=BG_INNER, padx=8, pady=6)
+        f_caminos.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(
+            f_caminos, text="Sin clave (Sniffer):  Paquete UDP ➔ Melodía 'All I Want...' (voz oculta)",
+            font=("Segoe UI", 7, "bold"), fg=COLOR_ALERT, bg=BG_INNER, anchor="w"
+        ).pack(anchor="w")
+        tk.Label(
+            f_caminos, text="Con clave (Receptor): Paquete UDP − Máscara ➔ Voz original limpia",
+            font=("Segoe UI", 7, "bold"), fg=COLOR_REC, bg=BG_INNER, anchor="w"
+        ).pack(anchor="w", pady=(2, 0))
 
         f_play_btns = tk.Frame(card_audio, bg=BG_CARD)
         f_play_btns.pack(fill=tk.X)
 
-        self.btn_play_mask = ttk.Button(f_play_btns, text="Espía (sin clave)", style="Pink.TButton",
+        self.btn_play_mask = ttk.Button(f_play_btns, text="▶ Interceptar sin clave (Espía)", style="Pink.TButton",
                                         command=self._reproducir_audio_enmascarado)
         self.btn_play_mask.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
 
-        self.btn_play_rec = ttk.Button(f_play_btns, text="▶ Voz recuperada", style="Green.TButton",
+        self.btn_play_rec = ttk.Button(f_play_btns, text="▶ Voz recuperada (Receptor)", style="Green.TButton",
                                        command=self._reproducir_audio_red, state=tk.DISABLED)
         self.btn_play_rec.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(3, 0))
 
@@ -1759,6 +1774,52 @@ class SDRModernApp(tk.Tk):
         self.feed_terminal.see(tk.END)
         self.feed_terminal.config(state=tk.DISABLED)
 
+    def _on_f4_mask_change(self):
+        if self.var_mascara.get():
+            self.lbl_estado_mask.config(text="● Tráfico camuflado (Máscara musical ON)", fg=ACCENT)
+        else:
+            self.lbl_estado_mask.config(text="● Tráfico sin cifrar (Máscara OFF)", fg=COLOR_ALERT)
+
+    def _graficar_auditoria_red(self, sig, titulo, color):
+        self.fig_red.clf()
+        ax1 = self.fig_red.add_subplot(2, 1, 1)
+        ax2 = self.fig_red.add_subplot(2, 1, 2)
+
+        for ax in (ax1, ax2):
+            self._estilizar_eje(ax)
+            ax.tick_params(colors=TEXT_MUTED, labelsize=8)
+            for spine in ax.spines.values():
+                spine.set_color("#E2E8F0")
+
+        n_win = min(len(sig), int(0.040 * FS))
+        if len(sig) > n_win:
+            peak_idx = int(np.argmax(np.abs(sig)))
+            start = max(0, min(peak_idx - n_win // 3, len(sig) - n_win))
+        else:
+            start = 0
+        end = start + n_win
+        t_ms = np.arange(start, end) / FS * 1000
+
+        ax1.plot(t_ms, sig[start:end], color=color, lw=1.2)
+        ax1.set_title(f"{titulo} — Onda Temporal (40 ms activos)", fontsize=9, fontweight="bold", color=TEXT_WHITE, loc="left")
+        ax1.set_xlabel("Tiempo (ms)", color=TEXT_MUTED, fontsize=8)
+        ax1.set_ylabel("Amplitud [-1, 1]", color=TEXT_MUTED, fontsize=8)
+        ax1.set_ylim(-1.15, 1.15)
+        ax1.grid(True, color="#E2E8F0", linestyle="--", alpha=0.7)
+
+        N = len(sig)
+        mags = 20 * np.log10(np.abs(np.fft.rfft(sig)) / max(1, N) + 1e-12)
+        freqs = np.fft.rfftfreq(N, 1 / FS) / 1000
+        ax2.plot(freqs, mags, color=color, lw=0.9)
+        ax2.set_title("Espectro de Frecuencias (FFT 0–4 kHz)", fontsize=9, fontweight="bold", color=TEXT_WHITE, loc="left")
+        ax2.set_xlabel("Frecuencia (kHz)", color=TEXT_MUTED, fontsize=8)
+        ax2.set_ylabel("Magnitud (dB)", color=TEXT_MUTED, fontsize=8)
+        ax2.set_xlim(0, 4.0)
+        ax2.grid(True, color="#E2E8F0", linestyle="--", alpha=0.7)
+
+        self.fig_red.tight_layout(pad=2.0)
+        self.canvas_red.draw()
+
     def _reproducir_audio_enmascarado(self):
         if self.audio_enmascarado_red is not None:
             sig = self.audio_enmascarado_red
@@ -1766,11 +1827,13 @@ class SDRModernApp(tk.Tk):
             sig = self.mascara[:len(self.voz)]
         else:
             return
-        self._log_f4("[ESPÍA] Interceptando paquetes SIN clave: ¡Solo se escucha música 8-bits! La voz está oculta.")
+        self._log_f4("[ESPÍA] Interceptando paquetes SIN clave: solo se escucha 'All I Want for Christmas' (voz oculta).")
+        self._graficar_auditoria_red(sig, "Sniffer (Sin clave) — Señal Enmascarada en Red", COLOR_ALERT)
         self.reproducir_audio(sig)
 
     def _reproducir_audio_red(self):
         if self.audio_recibido_red is not None:
+            self._graficar_auditoria_red(self.audio_recibido_red, "Receptor Legítimo (Con clave) — Voz Recuperada", COLOR_REC)
             self.reproducir_audio(self.audio_recibido_red)
 
     # ────────────────────────────────────────────────────────────

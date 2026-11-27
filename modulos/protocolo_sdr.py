@@ -372,40 +372,54 @@ def cargar_mascara_musical(duracion_s: float, fs: int = FS,
         musica = np.frombuffer(raw, dtype=tipos.get(ancho, np.int16)).astype(np.float32)
         musica /= np.iinfo(tipos.get(ancho, np.int16)).max
     else:
-        # Generar melodía sintética (acordes de Do mayor progresivos)
-        n_total = int(duracion_s * fs)
-        t = np.linspace(0, duracion_s, n_total, endpoint=False)
-
-        # Notas musicales en Hz (escala de Do mayor)
-        notas = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25]
-        # Progresión de acordes: Do-Mi-Sol, Re-Fa-La, Mi-Sol-Si, Do-Mi-Sol
-        acordes = [
-            (261.63, 329.63, 392.00),  # Do mayor
-            (293.66, 349.23, 440.00),  # Re menor
-            (329.63, 392.00, 493.88),  # Mi menor
-            (349.23, 440.00, 523.25),  # Fa mayor
+        # Generar melodía sintética reconocible ("All I Want for Christmas Is You" en Sol Mayor)
+        melodia = [
+            # "I don't want a lot for Christmas"
+            (293.66, 0.20, 196.00),  # D4 + G3
+            (392.00, 0.20, 196.00),  # G4
+            (392.00, 0.20, 196.00),  # G4
+            (440.00, 0.20, 196.00),  # A4
+            (493.88, 0.40, 196.00),  # B4
+            (440.00, 0.20, 196.00),  # A4
+            (392.00, 0.30, 196.00),  # G4
+            (329.63, 0.40, 164.81),  # E4 + E3
+            # "there is just one thing I need"
+            (293.66, 0.20, 130.81),  # D4 + C3
+            (392.00, 0.20, 130.81),  # G4
+            (392.00, 0.20, 130.81),  # G4
+            (440.00, 0.20, 130.81),  # A4
+            (493.88, 0.40, 146.83),  # B4 + D3
+            (440.00, 0.20, 146.83),  # A4
+            (392.00, 0.55, 196.00),  # G4 + G3
+            # "All I want for Christmas is you"
+            (659.25, 0.35, 130.81),  # E5 + C3
+            (587.33, 0.25, 130.81),  # D5
+            (523.25, 0.40, 130.81),  # C5
+            (493.88, 0.25, 146.83),  # B4 + D3
+            (440.00, 0.40, 146.83),  # A4
+            (392.00, 0.45, 196.00),  # G4 + G3
+            (440.00, 0.25, 146.83),  # A4 + D3
+            (392.00, 0.70, 196.00),  # G4 + G3
         ]
 
-        musica = np.zeros(n_total, dtype=np.float32)
-        duracion_acorde = n_total // len(acordes)
+        segmentos = []
+        for freq, dur_n, bajo_f in melodia:
+            n_seg = max(1, int(dur_n * fs))
+            seg_t = np.arange(n_seg, dtype=np.float32) / fs
+            # Timbre tipo campanilla/synth navideño (fundamental + armónicos suaves + bajo)
+            tono = (
+                0.55 * np.sin(2 * np.pi * freq * seg_t)
+                + 0.20 * np.sin(2 * np.pi * (2 * freq) * seg_t)
+                + 0.08 * np.sin(2 * np.pi * (3 * freq) * seg_t)
+                + 0.17 * np.sin(2 * np.pi * bajo_f * seg_t)
+            )
+            env = np.exp(-np.linspace(0, 3.2, n_seg)).astype(np.float32)
+            att = min(n_seg, int(0.012 * fs))
+            if att > 0:
+                env[:att] *= np.linspace(0, 1, att, dtype=np.float32)
+            segmentos.append((tono * env).astype(np.float32))
 
-        for i, (f1, f2, f3) in enumerate(acordes):
-            inicio = i * duracion_acorde
-            fin = min(inicio + duracion_acorde, n_total)
-            seg_t = t[inicio:fin]
-
-            # Acorde con 3 tonos + un bajo + percusión rítmica
-            acorde = (0.3 * np.sin(2 * np.pi * f1 * seg_t) +
-                      0.25 * np.sin(2 * np.pi * f2 * seg_t) +
-                      0.2 * np.sin(2 * np.pi * f3 * seg_t) +
-                      0.15 * np.sin(2 * np.pi * f1 / 2 * seg_t))  # bajo una octava abajo
-
-            # Envolvente de volumen (sube rápido, baja lento = tipo piano)
-            n_seg = len(seg_t)
-            envolvente = np.exp(-np.linspace(0, 3, n_seg))
-            envolvente[:int(0.02 * fs)] *= np.linspace(0, 1, int(0.02 * fs))
-
-            musica[inicio:fin] = acorde * envolvente
+        musica = np.concatenate(segmentos)
 
     # Normalizar a amplitud 0.5 (deja margen para sumar la voz)
     musica -= np.mean(musica)
