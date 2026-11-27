@@ -467,13 +467,7 @@ class SDRModernApp(tk.Tk):
         tk.Label(
             centro, text="SDR Voice Radio — Laboratorio de Redes",
             font=("Segoe UI", 20, "bold"), fg=TEXT_WHITE, bg=BG_DARK
-        ).pack(pady=(0, 6))
-
-        tk.Label(
-            centro,
-            text="Graba o carga una señal de voz, modúlala en AM o FM y transmítela por red UDP entre dos ordenadores.",
-            font=("Segoe UI", 10), fg=TEXT_SEC, bg=BG_DARK
-        ).pack(pady=(0, 26))
+        ).pack(pady=(0, 24))
 
         cols = tk.Frame(centro, bg=BG_DARK)
         cols.pack()
@@ -484,10 +478,10 @@ class SDRModernApp(tk.Tk):
         col_a = tk.Frame(cols, bg=BG_DARK)
         col_a.grid(row=0, column=0, padx=14, sticky="nsew")
 
-        card_a = self._crear_tarjeta(col_a, "Opción A · Modo Emisor / Laboratorio Local", estado="Audio propio", pady=0)
+        card_a = self._crear_tarjeta(col_a, "Opción A · Modo Emisor / Laboratorio Local", pady=0)
         tk.Label(
             card_a,
-            text="Tengo o voy a grabar un audio para analizar las modulaciones o transmitir por UDP.",
+            text="Prepara una señal de voz para modular o transmitir",
             font=("Segoe UI", 9), fg=TEXT_SEC, bg=BG_CARD, wraplength=340, justify="left"
         ).pack(anchor="w", pady=(0, 12))
 
@@ -518,49 +512,55 @@ class SDRModernApp(tk.Tk):
         col_b = tk.Frame(cols, bg=BG_DARK)
         col_b.grid(row=0, column=1, padx=14, sticky="nsew")
 
-        card_b = self._crear_tarjeta(col_b, "Opción B · Modo Receptor en Red", estado="Esperar señal", pady=0)
+        card_b = self._crear_tarjeta(col_b, "Opción B · Modo Receptor en Red", pady=0)
+
+        ip_pill = tk.Frame(card_b, bg=BG_INNER, padx=12, pady=12)
+        ip_pill.pack(fill=tk.X, pady=(4, 14))
         tk.Label(
-            card_b,
-            text="Recibe una transmisión UDP enviada desde un equipo emisor en la red local o VPN sin cargar audio previo.",
-            font=("Segoe UI", 9), fg=TEXT_SEC, bg=BG_CARD, wraplength=340, justify="left"
-        ).pack(anchor="w", pady=(0, 12))
+            ip_pill, text=f"IP Local: {self.ip_local}",
+            font=("Segoe UI", 14, "bold"), fg=COLOR_REC, bg=BG_INNER
+        ).pack(anchor="center")
 
-        ip_pill = tk.Frame(card_b, bg=BG_INNER, padx=10, pady=8)
-        ip_pill.pack(fill=tk.X, pady=(0, 12))
-        tk.Label(ip_pill, text=f"Tu IP local: {self.ip_local}", font=("Segoe UI", 9, "bold"),
-                 fg=COLOR_REC, bg=BG_INNER).pack(anchor="w")
-        tk.Label(ip_pill, text="Comparte esta IP con quien vaya a emitir.",
-                 font=("Segoe UI", 8), fg=TEXT_SEC, bg=BG_INNER).pack(anchor="w")
+        self.btn_rx_bruto = tk.Button(
+            card_b, text="Modo Transporte Bruto (UDP : 5005)",
+            command=lambda: self._sel_modo_receptor_launcher("TAB4", 5005),
+            font=("Segoe UI", 9, "bold"), pady=10, cursor="hand2", relief="flat", bd=0
+        )
+        self.btn_rx_bruto.pack(fill=tk.X, pady=(0, 8))
 
-        tk.Label(card_b, text="Destino de escucha:", font=("Segoe UI", 8, "bold"),
-                 fg=TEXT_WHITE, bg=BG_CARD).pack(anchor="w", pady=(0, 4))
+        self.btn_rx_radio = tk.Button(
+            card_b, text="Modo Radio AM / FM (UDP : 5018)",
+            command=lambda: self._sel_modo_receptor_launcher("TAB5", 5018),
+            font=("Segoe UI", 9, "bold"), pady=10, cursor="hand2", relief="flat", bd=0
+        )
+        self.btn_rx_radio.pack(fill=tk.X, pady=(0, 16))
 
-        tk.Radiobutton(
-            card_b, text="Canal de Transporte Bruto (Puerto 5005)",
-            variable=self.launcher_tab_rx, value="TAB4",
-            command=lambda: self.launcher_puerto.set(5005),
-            font=("Segoe UI", 8), fg=TEXT_WHITE, bg=BG_CARD, selectcolor=BG_CARD,
-            activebackground=BG_CARD, activeforeground=TEXT_WHITE
-        ).pack(anchor="w")
-
-        tk.Radiobutton(
-            card_b, text="Canal de Radio Modulada AM/FM (Puerto 5018)",
-            variable=self.launcher_tab_rx, value="TAB5",
-            command=lambda: self.launcher_puerto.set(5018),
-            font=("Segoe UI", 8), fg=TEXT_WHITE, bg=BG_CARD, selectcolor=BG_CARD,
-            activebackground=BG_CARD, activeforeground=TEXT_WHITE
-        ).pack(anchor="w", pady=(0, 10))
-
-        f_port = tk.Frame(card_b, bg=BG_CARD)
-        f_port.pack(fill=tk.X, pady=(0, 16))
-        tk.Label(f_port, text="Puerto de escucha:", font=("Segoe UI", 9),
-                 fg=TEXT_SEC, bg=BG_CARD).pack(side=tk.LEFT)
-        ttk.Entry(f_port, textvariable=self.launcher_puerto, width=8).pack(side=tk.LEFT, padx=(8, 0))
+        self._sel_modo_receptor_launcher(self.launcher_tab_rx.get(), int(self.launcher_puerto.get()))
 
         ttk.Button(
             card_b, text="Iniciar como Receptor  ›", style="Modern.TButton",
             command=self._iniciar_como_receptor
         ).pack(fill=tk.X)
+
+    def _sel_modo_receptor_launcher(self, tab_val: str, puerto: int):
+        self.launcher_tab_rx.set(tab_val)
+        self.launcher_puerto.set(puerto)
+        for btn, activo in (
+            (self.btn_rx_bruto, puerto == 5005),
+            (self.btn_rx_radio, puerto == 5018),
+        ):
+            if activo:
+                btn.config(
+                    bg="#EEF2FF", fg=ACCENT,
+                    activebackground="#E0E7FF", activeforeground=ACCENT,
+                    highlightbackground=ACCENT, highlightthickness=2
+                )
+            else:
+                btn.config(
+                    bg=BG_INNER, fg=TEXT_WHITE,
+                    activebackground=BORDER_CARD, activeforeground=TEXT_WHITE,
+                    highlightbackground=BORDER_CARD, highlightthickness=1
+                )
 
     def _launcher_grabar_voz(self):
         self.lbl_launcher_audio.config(text="● Grabando desde el micrófono (4s)...", fg=ACCENT)
@@ -2602,7 +2602,6 @@ class SDRModernApp(tk.Tk):
     # PESTAÑA 6: ARQUITECTURA DE RED Y PROTOCOLO PROPIO (VISUAL)
     # ────────────────────────────────────────────────────────────
     def _crear_tab_protocolo(self):
-        # Contenedor principal con scroll suave y aire
         sc_canvas = tk.Canvas(self.tab_proto, bg=BG_DARK, highlightthickness=0, bd=0)
         sc_canvas.pack(fill=tk.BOTH, expand=True)
 
@@ -2611,145 +2610,263 @@ class SDRModernApp(tk.Tk):
         cont.bind("<Configure>", lambda e: sc_canvas.configure(scrollregion=sc_canvas.bbox("all")))
         sc_canvas.bind("<Configure>", lambda e: sc_canvas.itemconfig(win, width=e.width))
 
-        self.proto_sel = tk.StringVar(value="SDR5")
-        self.proto_campo_sel = tk.StringVar(value="MAGIC")
+        self.proto_capa_sel = tk.StringVar(value="CAPA1")
 
-        # ── Cabecera + Toggle rápido Fase 4 vs Fase 5 ──
-        hdr = tk.Frame(cont, bg=BG_DARK)
-        hdr.pack(fill=tk.X, pady=(0, 10))
+        # ── Cabecera ──
+        tk.Label(
+            cont, text="Arquitectura de Red y Protocolo Propio (Modelo TCP/IP)",
+            font=("Segoe UI", 13, "bold"), fg=TEXT_WHITE, bg=BG_DARK
+        ).pack(anchor="w", pady=(0, 10))
 
-        tit_box = tk.Frame(hdr, bg=BG_DARK)
-        tit_box.pack(side=tk.LEFT)
-        tk.Label(tit_box, text="Arquitectura de Red y Protocolo Propio",
-                 font=("Segoe UI", 13, "bold"), fg=TEXT_WHITE, bg=BG_DARK).pack(anchor="w")
-        tk.Label(tit_box, text="Esquema visual en vivo · Pasa el ratón o haz clic en cada bloque para inspeccionarlo",
-                 font=("Segoe UI", 8), fg=TEXT_SEC, bg=BG_DARK).pack(anchor="w")
-
-        tog_box = tk.Frame(hdr, bg=BG_CARD, highlightbackground=BORDER_CARD, highlightthickness=1, padx=6, pady=4)
-        tog_box.pack(side=tk.RIGHT)
-        for txt, val in [
-            ("Fase 5 · SDR5 (31 B)", "SDR5"),
-            ("Fase 4 · SDR1 (22 B)", "SDR1"),
-            ("Estándar · SDRM (27 B)", "SDRM"),
-        ]:
-            tk.Radiobutton(
-                tog_box, text=txt, variable=self.proto_sel, value=val,
-                command=self._actualizar_vista_proto, font=("Segoe UI", 8, "bold"),
-                fg=TEXT_WHITE, bg=BG_CARD, selectcolor=BG_CARD,
-                activebackground=BG_CARD, activeforeground=ACCENT, padx=6
-            ).pack(side=tk.LEFT)
-
-        # ── 0. DIAGRAMA DE FLUJO DE DATOS (4 BLOQUES) ──
-        f_flujo = tk.Frame(cont, bg=BG_DARK)
-        f_flujo.pack(fill=tk.X, pady=(0, 8))
-        pasos_flujo = [
-            ("1. Captura", "Voz float32", "#0F172A"),
-            ("2. Cuantización", "int16 (-50% BW)", "#059669"),
-            ("3. Empaquetado", "Cabecera Binaria Big-Endian (!)", "#4F46E5"),
-            ("4. Transporte", "Datagrama UDP / IP (< MTU)", "#475569"),
+        # ── Navegación superior con 4 Botones Grandes de Capa ──
+        f_nav = tk.Frame(cont, bg=BG_DARK)
+        f_nav.pack(fill=tk.X, pady=(0, 12))
+        capas_nav = [
+            ("CAPA1", "1. Aplicación · Protocolo SDR"),
+            ("CAPA2", "2. Transporte · UDP y Flujo"),
+            ("CAPA3", "3. Red · IP y Enrutamiento"),
+            ("CAPA4", "4. Enlace y Física · MTU y Radio SDR"),
         ]
-        for idx, (sub_t, main_t, col_b) in enumerate(pasos_flujo):
-            box = tk.Frame(
-                f_flujo, bg=BG_CARD, highlightbackground=col_b,
-                highlightthickness=1.5, padx=10, pady=6
+        self.proto_nav_btns = {}
+        for idx, (cid, ctxt) in enumerate(capas_nav):
+            f_nav.grid_columnconfigure(idx, weight=1, uniform="nav4")
+            btn = tk.Button(
+                f_nav, text=ctxt, command=lambda c=cid: self._mostrar_capa_proto(c),
+                font=("Segoe UI", 9, "bold"), pady=10, padx=8, cursor="hand2",
+                relief="flat", bd=0
             )
+            pad_x = (0, 6) if idx == 0 else ((6, 0) if idx == 3 else 4)
+            btn.grid(row=0, column=idx, sticky="nsew", padx=pad_x)
+            self.proto_nav_btns[cid] = btn
+
+        # ── Contenedor dinámico de la capa seleccionada ──
+        self.f_capa_contenido = tk.Frame(cont, bg=BG_DARK)
+        self.f_capa_contenido.pack(fill=tk.BOTH, expand=True)
+
+        self._mostrar_capa_proto("CAPA1")
+
+    def _mostrar_capa_proto(self, capa_id: str):
+        self.proto_capa_sel.set(capa_id)
+        for cid, btn in self.proto_nav_btns.items():
+            if cid == capa_id:
+                btn.config(
+                    bg=ACCENT, fg="white",
+                    activebackground=ACCENT, activeforeground="white",
+                    highlightbackground=ACCENT, highlightthickness=2
+                )
+            else:
+                btn.config(
+                    bg=BG_CARD, fg=TEXT_WHITE,
+                    activebackground=BG_INNER, activeforeground=ACCENT,
+                    highlightbackground=BORDER_CARD, highlightthickness=1
+                )
+
+        for w in self.f_capa_contenido.winfo_children():
+            w.destroy()
+
+        if capa_id == "CAPA1":
+            self._render_capa1_aplicacion(self.f_capa_contenido)
+        elif capa_id == "CAPA2":
+            self._render_capa2_transporte(self.f_capa_contenido)
+        elif capa_id == "CAPA3":
+            self._render_capa3_red(self.f_capa_contenido)
+        else:
+            self._render_capa4_enlace_fisica(self.f_capa_contenido)
+
+    def _render_capa1_aplicacion(self, parent):
+        # Esquema superior de flujo (3 bloques)
+        f_flujo = tk.Frame(parent, bg=BG_DARK)
+        f_flujo.pack(fill=tk.X, pady=(0, 12))
+        pasos = [
+            ("ENTRADA", "Voz float32", "#0F172A"),
+            ("COMPRESIÓN", "Cuantización int16 (-50% BW · ~768 kbps)", "#059669"),
+            ("PROTOCOLO", "Cabecera Binaria Big-Endian (!)", "#4F46E5"),
+        ]
+        for idx, (sub_t, main_t, col_b) in enumerate(pasos):
+            box = tk.Frame(f_flujo, bg=BG_CARD, highlightbackground=col_b, highlightthickness=1.5, padx=12, pady=8)
             box.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            tk.Label(box, text=sub_t.upper(), font=("Segoe UI", 7, "bold"), fg=col_b, bg=BG_CARD).pack(anchor="w")
-            tk.Label(box, text=main_t, font=("Segoe UI", 8, "bold"), fg=TEXT_WHITE, bg=BG_CARD).pack(anchor="w")
-            if idx < len(pasos_flujo) - 1:
-                tk.Label(f_flujo, text=" ➔ ", font=("Segoe UI", 11, "bold"),
-                         fg=ACCENT, bg=BG_DARK).pack(side=tk.LEFT, padx=2)
+            tk.Label(box, text=sub_t, font=("Segoe UI", 7, "bold"), fg=col_b, bg=BG_CARD).pack(anchor="w")
+            tk.Label(box, text=main_t, font=("Segoe UI", 9, "bold"), fg=TEXT_WHITE, bg=BG_CARD).pack(anchor="w")
+            if idx < len(pasos) - 1:
+                tk.Label(f_flujo, text=" ➔ ", font=("Segoe UI", 12, "bold"), fg=ACCENT, bg=BG_DARK).pack(side=tk.LEFT, padx=3)
 
-        # ── 1. BARRA PROPORCIONAL DE ENCAPSULACIÓN Y LÍMITE MTU ──
-        c_mtu = self._crear_tarjeta(cont, "1. Encapsulación y límite físico MTU (1.500 B Ethernet / Wi-Fi)",
-                                    estado="● Sin fragmentación IP (1 bloque = 1 paquete)", acento=COLOR_REC, pady=5)
+        # Anatomía completa de la cabecera (5 tarjetas verticales paralelas)
+        c_anat = self._crear_tarjeta(parent, "Anatomía completa de la cabecera binaria (struct.pack Big-Endian '!')",
+                                     acento=ACCENT, pady=4)
+        f_cols = tk.Frame(c_anat, bg=BG_CARD)
+        f_cols.pack(fill=tk.BOTH, expand=True, pady=(4, 2))
 
+        campos = [
+            ("Magic", "4 B", "#4F46E5",
+             "'SDR5' / 'SDR1' / 'SDRM'. Filtra y descarta al instante tráfico ajeno o ruido en el puerto."),
+            ("Seq", "4 B", "#4338CA",
+             "Numeración correlativa (1, 2, 3...) para reordenación de paquetes y detección de huecos."),
+            ("Timestamp", "8 B", "#475569",
+             "Marca temporal (double) para cálculo continuo de retardo y jitter."),
+            ("Config & Flags", "15 B", "#059669",
+             "Autoconfiguración Zero-Config en el receptor (AM/FM, fc, ka/kf, flag mask de esteganografía y código m_code=99 de fin de transmisión)."),
+            ("Payload", "1.024 B", "#0F172A",
+             "Bloque de 512 muestras de audio cuantizadas en int16."),
+        ]
+        for idx, (nombre, tam, col, desc) in enumerate(campos):
+            f_cols.grid_columnconfigure(idx, weight=1, uniform="hdr5")
+            card = tk.Frame(f_cols, bg=BG_INNER, highlightbackground=BORDER_CARD, highlightthickness=1)
+            pad_x = (0, 5) if idx == 0 else ((5, 0) if idx == 4 else 4)
+            card.grid(row=0, column=idx, sticky="nsew", padx=pad_x)
+
+            hdr_c = tk.Frame(card, bg=col, padx=8, pady=8)
+            hdr_c.pack(fill=tk.X)
+            tk.Label(hdr_c, text=nombre, font=("Segoe UI", 9, "bold"), fg="white", bg=col).pack(anchor="w")
+            tk.Label(hdr_c, text=tam, font=("Consolas", 9, "bold"), fg="#E2E8F0", bg=col).pack(anchor="w")
+
+            tk.Label(
+                card, text=desc, font=("Segoe UI", 8), fg=TEXT_WHITE, bg=BG_INNER,
+                wraplength=175, justify="left", padx=8, pady=10
+            ).pack(anchor="nw", fill=tk.BOTH, expand=True)
+
+    def _render_capa2_transporte(self, parent):
+        # Fila superior: 2 tarjetas grandes (UDP vs TCP + Control de Flujo y Socket)
+        f_top = tk.Frame(parent, bg=BG_DARK)
+        f_top.pack(fill=tk.X, pady=(0, 8))
+        f_top.grid_columnconfigure(0, weight=1, uniform="t2")
+        f_top.grid_columnconfigure(1, weight=1, uniform="t2")
+
+        col1 = tk.Frame(f_top, bg=BG_DARK)
+        col1.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        k1 = self._crear_tarjeta(col1, "UDP (SOCK_DGRAM) vs TCP", acento=COLOR_REC, pady=0)
+        tk.Label(k1, text="● Sin conexión · Cero Head-of-Line Blocking", font=("Segoe UI", 9, "bold"),
+                 fg=COLOR_REC, bg=BG_CARD).pack(anchor="w", pady=(0, 4))
+        tk.Label(
+            k1,
+            text="Transporte sin conexión para evitar pausas y Head-of-Line Blocking por retransmisiones en voz en tiempo real.",
+            font=("Segoe UI", 9), fg=TEXT_SEC, bg=BG_CARD, wraplength=440, justify="left"
+        ).pack(anchor="w")
+
+        col2 = tk.Frame(f_top, bg=BG_DARK)
+        col2.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        k2 = self._crear_tarjeta(col2, "Control de Flujo y Socket", acento=ACCENT, pady=0)
+        tk.Label(k2, text="● Pacing: 10 ms/paquete   |   SO_RCVBUF = 1 MB", font=("Segoe UI", 9, "bold"),
+                 fg=ACCENT, bg=BG_CARD).pack(anchor="w", pady=(0, 4))
+        tk.Label(
+            k2,
+            text="Pacing de emisión ajustado a 10 ms/paquete (evita ráfagas en Wi-Fi/Tailscale) y búfer de recepción ampliado (SO_RCVBUF = 1 MB).",
+            font=("Segoe UI", 9), fg=TEXT_SEC, bg=BG_CARD, wraplength=440, justify="left"
+        ).pack(anchor="w")
+
+        # Tarjeta inferior grande: Control de Pérdidas (PLC) y Jitter
+        k3 = self._crear_tarjeta(parent, "Control de Pérdidas (PLC) y Jitter", acento=COLOR_AM, pady=4)
+        f_plc = tk.Frame(k3, bg=BG_CARD)
+        f_plc.pack(fill=tk.X, pady=(4, 8))
+
+        plc_bloques = [
+            ("Bloque #14", "Recibido OK", COLOR_REC),
+            ("Bloque #15 Perdido ➔ Repite #14 atenuado", "Packet Loss Concealment (PLC)", COLOR_AM),
+            ("Bloque #16", "Recibido OK", COLOR_REC),
+        ]
+        for idx, (tit_b, sub_b, col_b) in enumerate(plc_bloques):
+            b = tk.Frame(f_plc, bg=BG_INNER, highlightbackground=col_b, highlightthickness=1.5, padx=12, pady=8)
+            b.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            tk.Label(b, text=tit_b, font=("Consolas", 9, "bold"), fg=col_b, bg=BG_INNER).pack(anchor="w")
+            tk.Label(b, text=sub_b, font=("Segoe UI", 8), fg=TEXT_SEC, bg=BG_INNER).pack(anchor="w")
+            if idx < len(plc_bloques) - 1:
+                tk.Label(f_plc, text=" ➔ ", font=("Segoe UI", 12, "bold"), fg=ACCENT, bg=BG_CARD).pack(side=tk.LEFT, padx=3)
+
+        tk.Label(
+            k3,
+            text="● Medición continua de Jitter (RFC 3550) en milisegundos a partir de la marca temporal de cada paquete.",
+            font=("Segoe UI", 9, "bold"), fg=TEXT_WHITE, bg=BG_CARD
+        ).pack(anchor="w")
+
+    def _render_capa3_red(self, parent):
+        f_cols = tk.Frame(parent, bg=BG_DARK)
+        f_cols.pack(fill=tk.X)
+        f_cols.grid_columnconfigure(0, weight=1, uniform="r3")
+        f_cols.grid_columnconfigure(1, weight=1, uniform="r3")
+
+        # Bloque 1: Direccionamiento PC a PC
+        c1_wrap = tk.Frame(f_cols, bg=BG_DARK)
+        c1_wrap.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        b1 = self._crear_tarjeta(c1_wrap, "Direccionamiento PC a PC", acento=ACCENT, pady=0)
+
+        pill1 = tk.Frame(b1, bg=BG_INNER, padx=12, pady=10)
+        pill1.pack(fill=tk.X, pady=(2, 10))
+        tk.Label(pill1, text=f"IP Local Detectada: {self.ip_local}", font=("Segoe UI", 10, "bold"),
+                 fg=COLOR_REC, bg=BG_INNER).pack(anchor="w")
+        tk.Label(pill1, text="Escucha universal: 0.0.0.0:5005 / 0.0.0.0:5018", font=("Consolas", 9, "bold"),
+                 fg=ACCENT, bg=BG_INNER).pack(anchor="w", pady=(3, 0))
+
+        tk.Label(
+            b1,
+            text="Detección automática de IP real (obtener_ip_local(), filtrando interfaces virtuales como VMware) y socket abierto en 0.0.0.0:5005 / 5018 para recibir desde cualquier interfaz (Wi-Fi / Tailscale).",
+            font=("Segoe UI", 9), fg=TEXT_SEC, bg=BG_CARD, wraplength=430, justify="left"
+        ).pack(anchor="w")
+
+        # Bloque 2: Paquetización sin Fragmentación IP
+        c2_wrap = tk.Frame(f_cols, bg=BG_DARK)
+        c2_wrap.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        b2 = self._crear_tarjeta(c2_wrap, "Paquetización sin Fragmentación IP", acento=COLOR_REC, pady=0)
+
+        f_esq = tk.Frame(b2, bg=BG_INNER, padx=12, pady=10)
+        f_esq.pack(fill=tk.X, pady=(2, 10))
+        tk.Label(
+            f_esq,
+            text="[ IP: 20 B ] + [ UDP: 8 B ] + [ SDR5: 31 B ] + [ Audio: 1.024 B ] = 1.083 B",
+            font=("Consolas", 8, "bold"), fg=TEXT_WHITE, bg=BG_INNER
+        ).pack(anchor="w")
+        tk.Label(
+            f_esq,
+            text="● 1 bloque de audio = 1 datagrama IP íntegro (< 1.500 B MTU)",
+            font=("Segoe UI", 9, "bold"), fg=COLOR_REC, bg=BG_INNER
+        ).pack(anchor="w", pady=(4, 0))
+
+        tk.Label(
+            b2,
+            text="Cada bloque de audio (1.083 B totales con cabecera IP de 20 B) viaja íntegro en un único datagrama IP (1 bloque = 1 paquete), evitando el reensamblado en destino.",
+            font=("Segoe UI", 9), fg=TEXT_SEC, bg=BG_CARD, wraplength=430, justify="left"
+        ).pack(anchor="w")
+
+    def _render_capa4_enlace_fisica(self, parent):
+        # Barra proporcional de trama frente a MTU
+        c_mtu = self._crear_tarjeta(parent, "Trama frente al límite físico MTU (Ethernet / Wi-Fi 802.11)",
+                                    acento=COLOR_REC, pady=4)
         self.canvas_mtu = tk.Canvas(c_mtu, bg=BG_CARD, height=102, highlightthickness=0, bd=0)
         self.canvas_mtu.pack(fill=tk.X, pady=(2, 4))
         self.canvas_mtu.bind("<Configure>", lambda e: self._dibujar_barra_mtu())
 
-        self.lbl_mtu_resumen = tk.Label(c_mtu, text="", font=("Segoe UI", 8, "bold"), fg=TEXT_SEC, bg=BG_CARD)
+        self.lbl_mtu_resumen = tk.Label(
+            c_mtu,
+            text="[ 20B IP | 8B UDP | 31B SDR5 | 1024B Audio ] = 1.083 B  vs  1.500 B MTU  (Margen libre: 417 B)",
+            font=("Segoe UI", 9, "bold"), fg=TEXT_SEC, bg=BG_CARD
+        )
         self.lbl_mtu_resumen.pack(anchor="w")
 
-        # ── 2. ANATOMÍA INTERACTIVA DE LA CABECERA BINARIA (struct.pack Big-Endian '!') ──
-        c_hdr = self._crear_tarjeta(cont, "2. Anatomía interactiva de la cabecera binaria (struct.pack Big-Endian '!')",
-                                    estado="Pasa el ratón por cada celda", acento=ACCENT, pady=5)
+        # Doble plano físico (Red real vs. Radio simulada)
+        f_doble = tk.Frame(parent, bg=BG_DARK)
+        f_doble.pack(fill=tk.X, pady=(8, 0))
+        f_doble.grid_columnconfigure(0, weight=1, uniform="f4")
+        f_doble.grid_columnconfigure(1, weight=1, uniform="f4")
 
-        self.f_rfc_celdas = tk.Frame(c_hdr, bg=BG_CARD)
-        self.f_rfc_celdas.pack(fill=tk.X, pady=(2, 8))
+        col1 = tk.Frame(f_doble, bg=BG_DARK)
+        col1.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        p1 = self._crear_tarjeta(col1, "Medio Físico de Red", acento=ACCENT, pady=0)
+        tk.Label(p1, text="● Interfaz Wi-Fi / Ethernet + Túnel Tailscale", font=("Segoe UI", 9, "bold"),
+                 fg=ACCENT, bg=BG_CARD).pack(anchor="w", pady=(0, 4))
+        tk.Label(
+            p1,
+            text="Transmisión de tramas sobre interfaz Wi-Fi / Ethernet y túnel cifrado Tailscale.",
+            font=("Segoe UI", 9), fg=TEXT_SEC, bg=BG_CARD, wraplength=430, justify="left"
+        ).pack(anchor="w")
 
-        self.rfc_specs = [
-            ("MAGIC", "Magic (4 B)", "#4F46E5"),
-            ("SEQ", "Seq (4 B)", "#4338CA"),
-            ("TS", "Timestamp (8 B)", "#475569"),
-            ("CFG", "Config & Flags", "#059669"),
-            ("PAY", "Payload (1.024 B)", "#0F172A"),
-        ]
-        self.rfc_botones = {}
-        for idx, (key, title, col) in enumerate(self.rfc_specs):
-            cell = tk.Frame(self.f_rfc_celdas, bg=col, padx=10, pady=9, cursor="hand2")
-            cell.grid(row=0, column=idx, sticky="nsew", padx=3)
-            self.f_rfc_celdas.grid_columnconfigure(idx, weight=1)
-            lbl_t = tk.Label(cell, text=title, font=("Segoe UI", 8, "bold"), fg="white", bg=col, cursor="hand2")
-            lbl_t.pack()
-            lbl_s = tk.Label(cell, text="", font=("Segoe UI", 7), fg="#E2E8F0", bg=col, cursor="hand2")
-            lbl_s.pack(pady=(2, 0))
-            self.rfc_botones[key] = (cell, lbl_t, lbl_s)
-            for w_bind in (cell, lbl_t, lbl_s):
-                w_bind.bind("<Enter>", lambda e, k=key: self._seleccionar_celda_proto(k))
-                w_bind.bind("<Button-1>", lambda e, k=key: self._seleccionar_celda_proto(k))
-
-        inspector = tk.Frame(c_hdr, bg=BG_INNER, padx=12, pady=10)
-        inspector.pack(fill=tk.X)
-        f_ins_top = tk.Frame(inspector, bg=BG_INNER)
-        f_ins_top.pack(fill=tk.X)
-        self.lbl_ins_titulo = tk.Label(f_ins_top, text="", font=("Segoe UI", 9, "bold"), fg=ACCENT, bg=BG_INNER)
-        self.lbl_ins_titulo.pack(side=tk.LEFT)
-        self.lbl_ins_badge = tk.Label(f_ins_top, text="", font=("Segoe UI", 8, "bold"), fg=COLOR_REC, bg=BG_INNER)
-        self.lbl_ins_badge.pack(side=tk.RIGHT)
-        self.lbl_ins_desc = tk.Label(inspector, text="", font=("Segoe UI", 8), fg=TEXT_WHITE, bg=BG_INNER, anchor="w")
-        self.lbl_ins_desc.pack(anchor="w", pady=(4, 6))
-
-        esquema_box = tk.Frame(inspector, bg=BG_CARD, highlightbackground=BORDER_CARD, highlightthickness=1, padx=10, pady=5)
-        esquema_box.pack(fill=tk.X)
-        self.lbl_ins_esquema = tk.Label(esquema_box, text="", font=("Consolas", 8, "bold"), fg=TEXT_WHITE, bg=BG_CARD, anchor="w")
-        self.lbl_ins_esquema.pack(anchor="w")
-
-        # ── 3. TARJETAS DE DECISIONES DE TRANSPORTE Y FLUJO (3 MICRO-TARJETAS) ──
-        f_kpis = tk.Frame(cont, bg=BG_DARK)
-        f_kpis.pack(fill=tk.X, pady=(6, 4))
-        for i in range(3):
-            f_kpis.grid_columnconfigure(i, weight=1, uniform="kpi3")
-
-        col1 = tk.Frame(f_kpis, bg=BG_DARK)
-        col1.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        k1 = self._crear_tarjeta(col1, "UDP (SOCK_DGRAM) vs TCP", estado="Transporte", pady=0)
-        tk.Label(k1, text="● Baja latencia — Cero Head-of-Line Blocking", font=("Segoe UI", 8, "bold"),
-                 fg=COLOR_REC, bg=BG_CARD).pack(anchor="w")
-        tk.Label(k1, text="Sin bloqueos por retransmisión ni esperas por ACK si se pierde un datagrama.", font=("Segoe UI", 8),
-                 fg=TEXT_SEC, bg=BG_CARD, wraplength=270, justify="left").pack(anchor="w", pady=(3, 0))
-
-        col2 = tk.Frame(f_kpis, bg=BG_DARK)
-        col2.grid(row=0, column=1, sticky="nsew", padx=3)
-        k2 = self._crear_tarjeta(col2, "Conectividad PC a PC", estado="Red IP", pady=0)
-        tk.Label(k2, text=f"● IP real: {self.ip_local} (obtener_ip_local)", font=("Segoe UI", 8, "bold"),
-                 fg=ACCENT, bg=BG_CARD).pack(anchor="w")
-        tk.Label(k2, text="Filtra adaptadores virtuales (VMware) y escucha abierta en 0.0.0.0:5005 / 5018.", font=("Segoe UI", 8),
-                 fg=TEXT_SEC, bg=BG_CARD, wraplength=270, justify="left").pack(anchor="w", pady=(3, 0))
-
-        col3 = tk.Frame(f_kpis, bg=BG_DARK)
-        col3.grid(row=0, column=2, sticky="nsew", padx=(6, 0))
-        k3 = self._crear_tarjeta(col3, "Control de Flujo y Socket", estado="Estabilidad", pady=0)
-        tk.Label(k3, text="● Pacing: 10 ms/paquete (sin ráfagas Wi-Fi/VPN)", font=("Segoe UI", 8, "bold"),
-                 fg=COLOR_REC, bg=BG_CARD).pack(anchor="w")
-        tk.Label(k3, text="● Búfer ampliado SO_RCVBUF = 1 MB (anti-desbordamiento).", font=("Segoe UI", 8, "bold"),
-                 fg=TEXT_SEC, bg=BG_CARD, wraplength=270, justify="left").pack(anchor="w", pady=(3, 0))
-
-        self._actualizar_vista_proto()
-
-    def _actualizar_vista_proto(self):
-        self._dibujar_barra_mtu()
-        self._seleccionar_celda_proto(self.proto_campo_sel.get())
+        col2 = tk.Frame(f_doble, bg=BG_DARK)
+        col2.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        p2 = self._crear_tarjeta(col2, "Capa Física SDR (Simulada en Software)", acento=COLOR_AM, pady=0)
+        tk.Label(p2, text="● Muestreo 48 kHz (Nyquist fs > 2·fmax) + AM/FM + AWGN", font=("Segoe UI", 9, "bold"),
+                 fg=COLOR_AM, bg=BG_CARD).pack(anchor="w", pady=(0, 4))
+        tk.Label(
+            p2,
+            text="Muestreo a 48 kHz (criterio de Nyquist fs > 2·fmax), modulación/demodulación analógica AM y FM sobre portadora digital y canal con ruido AWGN.",
+            font=("Segoe UI", 9), fg=TEXT_SEC, bg=BG_CARD, wraplength=430, justify="left"
+        ).pack(anchor="w")
 
     def _dibujar_barra_mtu(self):
         c = self.canvas_mtu
@@ -2758,14 +2875,7 @@ class SDRModernApp(tk.Tk):
         if w < 220:
             return
 
-        modo = self.proto_sel.get()
-        if modo == "SDR5":
-            hdr_sdr, pay_b, lbl_sdr = 31, 1024, "SDR5: 31 B"
-        elif modo == "SDR1":
-            hdr_sdr, pay_b, lbl_sdr = 22, 960, "SDR1: 22 B"
-        else:
-            hdr_sdr, pay_b, lbl_sdr = 27, 1024, "SDRM: 27 B"
-
+        hdr_sdr, pay_b = 31, 1024
         cab_total = 20 + 8 + hdr_sdr
         total = cab_total + pay_b
         max_escala = 1620.0
@@ -2775,19 +2885,18 @@ class SDRModernApp(tk.Tk):
         def x_de(b):
             return pad_l + (b / max_escala) * usable_w
 
-        # Fondo guía hasta 1500 B
         y1, y2 = 30, 68
         x_mtu = x_de(1500)
         c.create_rectangle(pad_l, y1, x_mtu, y2, fill=BG_INNER, outline=BORDER_CARD, width=1)
 
-        # Anchos secuenciales sin solapamiento para las 3 cabeceras estrechas
+        # Etiquetas cortas (20B, 8B, 31B) con ancho mínimo secuencial sin solapamiento
         hdr_specs = [
-            (20, "20B", "#64748B", 38),
-            (8, "8B", "#475569", 32),
-            (hdr_sdr, f"{hdr_sdr}B", ACCENT, 40),
+            ("20B", "#64748B", 38),
+            ("8B", "#475569", 32),
+            ("31B", ACCENT, 40),
         ]
         x_cur = pad_l
-        for _, txt, col, min_w in hdr_specs:
+        for txt, col, min_w in hdr_specs:
             xa = x_cur
             xb = xa + min_w
             c.create_rectangle(xa, y1, xb, y2, fill=col, outline=BG_CARD, width=1.5)
@@ -2795,89 +2904,24 @@ class SDRModernApp(tk.Tk):
                           font=("Segoe UI", 8, "bold"), fill="white")
             x_cur = xb
 
-        # Indicador superior agrupando las 3 cabeceras
         c.create_line(pad_l, 22, x_cur, 22, fill=ACCENT, width=1.5)
         c.create_line(pad_l, 22, pad_l, 26, fill=ACCENT, width=1.5)
         c.create_line(x_cur, 22, x_cur, 26, fill=ACCENT, width=1.5)
         c.create_text((pad_l + x_cur) / 2, 12, text=f"Cabeceras: {cab_total} B",
                       font=("Segoe UI", 8, "bold"), fill=ACCENT)
 
-        # Carga útil proporcional (siempre a la derecha de x_cur y bien antes de x_mtu)
         x_pay_end = max(x_cur + 180, x_de(total))
         x_pay_end = min(x_pay_end, x_mtu - 30)
         c.create_rectangle(x_cur, y1, x_pay_end, y2, fill=COLOR_REC, outline=BG_CARD, width=1.5)
         c.create_text((x_cur + x_pay_end) / 2, (y1 + y2) / 2,
-                      text=f"Carga útil Audio ({pay_b} B)",
+                      text=f"1024B Audio",
                       font=("Segoe UI", 8, "bold"), fill="white")
 
-        # Línea vertical límite MTU 1500 B
         c.create_line(x_mtu, 12, x_mtu, 84, fill=COLOR_ALERT, width=2, dash=(4, 3))
         c.create_text(x_mtu - 4, 10, text="Límite MTU = 1.500 B", anchor="ne",
                       font=("Segoe UI", 8, "bold"), fill=COLOR_ALERT)
-        c.create_text(x_pay_end, 82, text=f"Total enviado: {total} B", anchor="e",
+        c.create_text(x_pay_end, 82, text=f"Total: {total} B (Margen libre: 417 B)", anchor="e",
                       font=("Segoe UI", 8, "bold"), fill=COLOR_REC)
-
-        self.lbl_mtu_resumen.config(
-            text=f"[ IP: 20 B ] + [ UDP: 8 B ] + [ {lbl_sdr} ] + [ Audio int16: {pay_b} B ] = {total} Bytes totales  "
-                 f"(Margen libre: {1500 - total} B)"
-        )
-
-    def _seleccionar_celda_proto(self, key: str):
-        self.proto_campo_sel.set(key)
-        modo = self.proto_sel.get()
-        fc_val = int(self.f5_fc.get()) if hasattr(self, "f5_fc") else 10000
-        modo_mod = self.f5_modo.get() if hasattr(self, "f5_modo") else "FM"
-        mask_txt = "ON (8-bits)" if (hasattr(self, "var_mascara") and self.var_mascara.get()) else "OFF"
-        pay_b = 960 if modo == "SDR1" else 1024
-        n_pkts = max(1, len(self.voz) // 512 + 1)
-
-        subs = {
-            "MAGIC": f"4 B ('{modo}')",
-            "SEQ": f"1 .. {n_pkts}",
-            "TS": "8 B double",
-            "CFG": f"{modo_mod} · {fc_val} Hz",
-            "PAY": f"{pay_b} B (-50% BW)",
-        }
-        for k, (cell, lbl_t, lbl_s) in self.rfc_botones.items():
-            lbl_s.config(text=subs[k])
-
-        detalles = {
-            "MAGIC": (
-                f"Magic (4 B) — Identificador '{modo}'",
-                "● 4 bytes ASCII Big-Endian",
-                f"Identificador de protocolo ({modo}). Filtra y descarta al instante tráfico ajeno o ruido en el puerto.",
-                f"[ Trama UDP ] ➔ [ ¿Magic == '{modo}'? ] ➔ [ SÍ: Desempaquetar | NO: Descartar al instante ]"
-            ),
-            "SEQ": (
-                "Seq (4 B) — Numeración correlativa y PLC",
-                f"● uint32 · 1 .. {n_pkts} bloques",
-                "Numeración correlativa para reordenar bloques y aplicar PLC (Packet Loss Concealment) ante pérdidas.",
-                "[ Pkt #14 ] ➔ [ Pkt #15 (Perdido) ➔ Repetición atenuada #14 ] ➔ [ Pkt #16 ]"
-            ),
-            "TS": (
-                "Timestamp (8 B) — Retardo y Jitter (RFC 3550)",
-                "● double 64-bit · Precisión en ms",
-                "Marca temporal (double) para cálculo continuo de retardo y Jitter (RFC 3550) en milisegundos.",
-                "[ t_tx (8 B) ] ➔ [ |t_rx - t_tx| = Retardo (ms) ] ➔ [ Jitter suavizado RFC 3550 ]"
-            ),
-            "CFG": (
-                "Config & Flags — Autoconfiguración Zero-Config",
-                f"● {modo_mod} · fc={fc_val} Hz · Mask {mask_txt}",
-                "Transporta modulación (AM/FM), fc, ka/kf, flag mask (esteganografía en Fase 4) y m_code = 99 (fin de transmisión).",
-                f"[ mod={modo_mod} | fc={fc_val} Hz | ka/kf | mask={mask_txt} | m_code=99 ] ➔ [ Zero-Config en RX ]"
-            ),
-            "PAY": (
-                f"Payload ({pay_b} B) — Cuantización int16",
-                "● Ahorro 50% BW (~768 kbps)",
-                "Conversión float32 ➔ int16 (512 muestras). Reduce el ancho de banda de red al 50% (~768 kbps) sin pérdida audible.",
-                f"[ 512 × float32 (2.048 B) ] ➔ [ int16 ({pay_b} B) ] ➔ [ -50% Ancho de Banda (~768 kbps) ]"
-            ),
-        }
-        tit, badge, desc, esq = detalles[key]
-        self.lbl_ins_titulo.config(text=tit)
-        self.lbl_ins_badge.config(text=badge)
-        self.lbl_ins_desc.config(text=desc)
-        self.lbl_ins_esquema.config(text=esq)
 
     def _configurar_toolbar(self, canvas, parent):
         # Barra de herramientas oculta para mantener estética limpia y moderna
