@@ -2620,7 +2620,7 @@ class SDRModernApp(tk.Tk):
         # Layout 2 columnas: Izquierda Pila TCP/IP (vertical), Derecha Explicación Técnica
         f_main = tk.Frame(cont, bg=BG_DARK)
         f_main.pack(fill=tk.BOTH, expand=True)
-        f_main.grid_columnconfigure(0, minsize=310, weight=0)
+        f_main.grid_columnconfigure(0, minsize=405, weight=0)
         f_main.grid_columnconfigure(1, weight=1)
 
         f_izq = tk.Frame(f_main, bg=BG_DARK)
@@ -2629,37 +2629,55 @@ class SDRModernApp(tk.Tk):
         c_pila = self._crear_tarjeta(f_izq, "Pila de Protocolos (Encapsulación)", acento=ACCENT, pady=0)
 
         capas_pila = [
-            ("CAPA4", "Capa 4 · Aplicación", "Protocolo SDR5 · 31 B + 1.024 B", "#4F46E5"),
-            ("CAPA3", "Capa 3 · Transporte", "UDP (SOCK_DGRAM) · 8 B", "#059669"),
-            ("CAPA2", "Capa 2 · Red", "IPv4 (Sin fragmentación) · 20 B", "#475569"),
-            ("CAPA1", "Capa 1 · Enlace y Física", "MTU 1.500 B + Radio SDR", "#0F172A"),
+            ("CAPA4", "Capa 4 · Aplicación", "1.055 B", "#4F46E5", [
+                ("SDR5: 31 B", "#4F46E5"), ("Audio int16: 1.024 B", "#059669"),
+            ]),
+            ("CAPA3", "Capa 3 · Transporte (UDP)", "1.063 B", "#059669", [
+                ("UDP: 8 B", "#475569"), ("SDR5: 31 B", "#4F46E5"), ("Audio: 1.024 B", "#059669"),
+            ]),
+            ("CAPA2", "Capa 2 · Red (IPv4)", "1.083 B", "#475569", [
+                ("IP: 20 B", "#64748B"), ("UDP: 8 B", "#475569"), ("SDR5: 31 B", "#4F46E5"), ("Audio: 1.024 B", "#059669"),
+            ]),
+            ("CAPA1", "Capa 1 · Enlace y Física", "MTU 1.500 B", "#0F172A", [
+                ("20B", "#64748B"), ("8B", "#475569"), ("31B", "#4F46E5"), ("1.024 B", "#059669"), ("+417 B libre", "#0F172A"),
+            ]),
         ]
         self.proto_pila_items = {}
-        for idx, (cid, tit, sub, col) in enumerate(capas_pila):
+        for idx, (cid, tit, total_txt, col, bloques_bar) in enumerate(capas_pila):
             row_f = tk.Frame(c_pila, bg=BG_INNER, highlightbackground=BORDER_CARD,
-                             highlightthickness=1, padx=12, pady=11, cursor="hand2")
+                             highlightthickness=1, padx=10, pady=9, cursor="hand2")
             row_f.pack(fill=tk.X)
 
             bar = tk.Frame(row_f, bg=col, width=5)
-            bar.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+            bar.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 9))
 
             txt_f = tk.Frame(row_f, bg=BG_INNER, cursor="hand2")
             txt_f.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            lbl_t = tk.Label(txt_f, text=tit, font=("Segoe UI", 9, "bold"), fg=TEXT_WHITE, bg=BG_INNER, cursor="hand2")
-            lbl_t.pack(anchor="w")
-            lbl_s = tk.Label(txt_f, text=sub, font=("Segoe UI", 8), fg=TEXT_SEC, bg=BG_INNER, cursor="hand2")
-            lbl_s.pack(anchor="w")
 
-            lbl_arr = tk.Label(row_f, text="›", font=("Segoe UI", 13, "bold"), fg=TEXT_MUTED, bg=BG_INNER, cursor="hand2")
-            lbl_arr.pack(side=tk.RIGHT)
+            top_f = tk.Frame(txt_f, bg=BG_INNER, cursor="hand2")
+            top_f.pack(fill=tk.X)
+            lbl_t = tk.Label(top_f, text=tit, font=("Segoe UI", 9, "bold"), fg=TEXT_WHITE, bg=BG_INNER, cursor="hand2")
+            lbl_t.pack(side=tk.LEFT)
+            lbl_tot = tk.Label(top_f, text=total_txt, font=("Consolas", 8, "bold"),
+                               fg=col, bg=BG_CARD, padx=6, pady=1, cursor="hand2")
+            lbl_tot.pack(side=tk.RIGHT)
 
-            self.proto_pila_items[cid] = (row_f, txt_f, lbl_t, lbl_s, lbl_arr, col)
-            for w_click in (row_f, bar, txt_f, lbl_t, lbl_s, lbl_arr):
+            bar_f = tk.Frame(txt_f, bg=BG_INNER, cursor="hand2")
+            bar_f.pack(fill=tk.X, pady=(6, 0))
+            click_widgets = [row_f, bar, txt_f, top_f, lbl_t, lbl_tot, bar_f]
+            for b_txt, b_col in bloques_bar:
+                pill = tk.Label(bar_f, text=b_txt, font=("Consolas", 7, "bold"),
+                                fg="white", bg=b_col, padx=5, pady=2, cursor="hand2")
+                pill.pack(side=tk.LEFT, padx=(0, 3))
+                click_widgets.append(pill)
+
+            self.proto_pila_items[cid] = (row_f, txt_f, top_f, bar_f, lbl_t, col)
+            for w_click in click_widgets:
                 w_click.bind("<Button-1>", lambda e, c=cid: self._mostrar_capa_proto(c))
 
             if idx < len(capas_pila) - 1:
                 tk.Label(c_pila, text="⬇", font=("Segoe UI", 10, "bold"),
-                         fg=TEXT_MUTED, bg=BG_CARD).pack(pady=3)
+                         fg=TEXT_MUTED, bg=BG_CARD).pack(pady=2)
 
         # Columna Derecha: Panel de Explicación Técnica
         self.f_capa_contenido = tk.Frame(f_main, bg=BG_DARK)
@@ -2670,7 +2688,7 @@ class SDRModernApp(tk.Tk):
 
     def _mostrar_capa_proto(self, capa_id: str):
         self.proto_capa_sel.set(capa_id)
-        for cid, (row_f, txt_f, lbl_t, lbl_s, lbl_arr, col) in self.proto_pila_items.items():
+        for cid, (row_f, txt_f, top_f, bar_f, lbl_t, col) in self.proto_pila_items.items():
             activo = (cid == capa_id)
             bg_box = "#EEF2FF" if activo else BG_INNER
             row_f.config(
@@ -2679,9 +2697,9 @@ class SDRModernApp(tk.Tk):
                 highlightthickness=2 if activo else 1
             )
             txt_f.config(bg=bg_box)
+            top_f.config(bg=bg_box)
+            bar_f.config(bg=bg_box)
             lbl_t.config(bg=bg_box, fg=col if activo else TEXT_WHITE)
-            lbl_s.config(bg=bg_box, fg=TEXT_WHITE if activo else TEXT_SEC)
-            lbl_arr.config(bg=bg_box, fg=col if activo else TEXT_MUTED)
 
         for w in self.f_capa_contenido.winfo_children():
             w.destroy()
