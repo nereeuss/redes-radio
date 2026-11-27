@@ -521,7 +521,7 @@ class SDRModernApp(tk.Tk):
         card_b = self._crear_tarjeta(col_b, "Opción B · Modo Receptor en Red", estado="Esperar señal", pady=0)
         tk.Label(
             card_b,
-            text="Recibe una transmisión UDP enviada desde el ordenador de tu compañera sin cargar audio previo.",
+            text="Recibe una transmisión UDP enviada desde un equipo emisor en la red local o VPN sin cargar audio previo.",
             font=("Segoe UI", 9), fg=TEXT_SEC, bg=BG_CARD, wraplength=340, justify="left"
         ).pack(anchor="w", pady=(0, 12))
 
@@ -536,7 +536,7 @@ class SDRModernApp(tk.Tk):
                  fg=TEXT_WHITE, bg=BG_CARD).pack(anchor="w", pady=(0, 4))
 
         tk.Radiobutton(
-            card_b, text="Pestaña 4 · Red UDP & Espía (puerto 5005)",
+            card_b, text="Canal de Transporte Bruto (Puerto 5005)",
             variable=self.launcher_tab_rx, value="TAB4",
             command=lambda: self.launcher_puerto.set(5005),
             font=("Segoe UI", 8), fg=TEXT_WHITE, bg=BG_CARD, selectcolor=BG_CARD,
@@ -544,7 +544,7 @@ class SDRModernApp(tk.Tk):
         ).pack(anchor="w")
 
         tk.Radiobutton(
-            card_b, text="Pestaña 5 · Radio AM/FM en Red (puerto 5018)",
+            card_b, text="Canal de Radio Modulada AM/FM (Puerto 5018)",
             variable=self.launcher_tab_rx, value="TAB5",
             command=lambda: self.launcher_puerto.set(5018),
             font=("Segoe UI", 8), fg=TEXT_WHITE, bg=BG_CARD, selectcolor=BG_CARD,
@@ -1045,7 +1045,7 @@ class SDRModernApp(tk.Tk):
 
         # Paso 2
         card2 = self._crear_tarjeta(izq, "Paso 2 · Modulación AM", acento=COLOR_AM, pady=4)
-        tk.Label(card2, text="Montamos la voz sobre una portadora de 8.000 Hz. El volumen de la onda dibuja la voz.",
+        tk.Label(card2, text="Modulación de amplitud sobre portadora digital de 8.000 Hz. La envolvente de la portadora reproduce la forma de onda de la voz.",
                  font=("Segoe UI", 9), fg=TEXT_SEC, bg=BG_CARD, wraplength=320, justify="left").pack(anchor="w", pady=(0, 6))
         ttk.Button(card2, text="▶ 2. Escuchar Señal AM Modulada", style="AM.TButton",
                    command=lambda: self.mostrar_y_reproducir(
@@ -1793,10 +1793,17 @@ class SDRModernApp(tk.Tk):
             for spine in ax.spines.values():
                 spine.set_color("#E2E8F0")
 
-        # 1. Gráfica Temporal
-        n_muestras_plot = int(0.010 * FS)
-        t_ms = np.arange(n_muestras_plot) / FS * 1000
-        ax1.plot(t_ms, señal[:n_muestras_plot], color=color, lw=1.2)
+        # 1. Gráfica Temporal (ventana de 10 ms centrada en el pico activo de voz)
+        n_muestras_plot = min(len(señal), int(0.010 * FS))
+        if len(señal) > n_muestras_plot:
+            ref = self.voz if (hasattr(self, "voz") and self.voz is not None and len(self.voz) == len(señal)) else señal
+            peak_idx = int(np.argmax(np.abs(ref)))
+            start = max(0, min(peak_idx - n_muestras_plot // 2, len(señal) - n_muestras_plot))
+        else:
+            start = 0
+        end = start + n_muestras_plot
+        t_ms = np.arange(start, end) / FS * 1000
+        ax1.plot(t_ms, señal[start:end], color=color, lw=1.2)
         self._estilizar_eje(ax1)
         self._estilizar_eje(ax2)
         ax1.set_title(f"{titulo} (10 ms)", fontsize=9.5, fontweight="bold", color=TEXT_WHITE, loc="left", pad=8)
@@ -2632,11 +2639,32 @@ class SDRModernApp(tk.Tk):
                 activebackground=BG_CARD, activeforeground=ACCENT, padx=6
             ).pack(side=tk.LEFT)
 
+        # ── 0. DIAGRAMA DE FLUJO DE DATOS (4 BLOQUES) ──
+        f_flujo = tk.Frame(cont, bg=BG_DARK)
+        f_flujo.pack(fill=tk.X, pady=(0, 8))
+        pasos_flujo = [
+            ("1. Captura", "Voz float32", "#0F172A"),
+            ("2. Cuantización", "int16 (-50% BW)", "#059669"),
+            ("3. Empaquetado", "Cabecera Binaria Big-Endian (!)", "#4F46E5"),
+            ("4. Transporte", "Datagrama UDP / IP (< MTU)", "#475569"),
+        ]
+        for idx, (sub_t, main_t, col_b) in enumerate(pasos_flujo):
+            box = tk.Frame(
+                f_flujo, bg=BG_CARD, highlightbackground=col_b,
+                highlightthickness=1.5, padx=10, pady=6
+            )
+            box.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            tk.Label(box, text=sub_t.upper(), font=("Segoe UI", 7, "bold"), fg=col_b, bg=BG_CARD).pack(anchor="w")
+            tk.Label(box, text=main_t, font=("Segoe UI", 8, "bold"), fg=TEXT_WHITE, bg=BG_CARD).pack(anchor="w")
+            if idx < len(pasos_flujo) - 1:
+                tk.Label(f_flujo, text=" ➔ ", font=("Segoe UI", 11, "bold"),
+                         fg=ACCENT, bg=BG_DARK).pack(side=tk.LEFT, padx=2)
+
         # ── 1. BARRA PROPORCIONAL DE ENCAPSULACIÓN Y LÍMITE MTU ──
         c_mtu = self._crear_tarjeta(cont, "1. Encapsulación y límite físico MTU (1.500 B Ethernet / Wi-Fi)",
                                     estado="● Sin fragmentación IP (1 bloque = 1 paquete)", acento=COLOR_REC, pady=5)
 
-        self.canvas_mtu = tk.Canvas(c_mtu, bg=BG_CARD, height=92, highlightthickness=0, bd=0)
+        self.canvas_mtu = tk.Canvas(c_mtu, bg=BG_CARD, height=102, highlightthickness=0, bd=0)
         self.canvas_mtu.pack(fill=tk.X, pady=(2, 4))
         self.canvas_mtu.bind("<Configure>", lambda e: self._dibujar_barra_mtu())
 
@@ -2644,22 +2672,22 @@ class SDRModernApp(tk.Tk):
         self.lbl_mtu_resumen.pack(anchor="w")
 
         # ── 2. ANATOMÍA INTERACTIVA DE LA CABECERA BINARIA (struct.pack Big-Endian '!') ──
-        c_hdr = self._crear_tarjeta(cont, "2. Anatomía interactiva de la cabecera binaria (Big-Endian '!')",
+        c_hdr = self._crear_tarjeta(cont, "2. Anatomía interactiva de la cabecera binaria (struct.pack Big-Endian '!')",
                                     estado="Pasa el ratón por cada celda", acento=ACCENT, pady=5)
 
         self.f_rfc_celdas = tk.Frame(c_hdr, bg=BG_CARD)
         self.f_rfc_celdas.pack(fill=tk.X, pady=(2, 8))
 
         self.rfc_specs = [
-            ("MAGIC", "Magic (SDR5 / SDR1)", "#4F46E5"),
-            ("SEQ", "Seq (1, 2, 3...)", "#4338CA"),
-            ("TS", "Timestamp (ms)", "#475569"),
-            ("CFG", "Config / Flags", "#059669"),
-            ("PAY", "Payload (float32 ➔ int16)", "#0F172A"),
+            ("MAGIC", "Magic (4 B)", "#4F46E5"),
+            ("SEQ", "Seq (4 B)", "#4338CA"),
+            ("TS", "Timestamp (8 B)", "#475569"),
+            ("CFG", "Config & Flags", "#059669"),
+            ("PAY", "Payload (1.024 B)", "#0F172A"),
         ]
         self.rfc_botones = {}
         for idx, (key, title, col) in enumerate(self.rfc_specs):
-            cell = tk.Frame(self.f_rfc_celdas, bg=col, padx=10, pady=10, cursor="hand2")
+            cell = tk.Frame(self.f_rfc_celdas, bg=col, padx=10, pady=9, cursor="hand2")
             cell.grid(row=0, column=idx, sticky="nsew", padx=3)
             self.f_rfc_celdas.grid_columnconfigure(idx, weight=1)
             lbl_t = tk.Label(cell, text=title, font=("Segoe UI", 8, "bold"), fg="white", bg=col, cursor="hand2")
@@ -2671,7 +2699,7 @@ class SDRModernApp(tk.Tk):
                 w_bind.bind("<Enter>", lambda e, k=key: self._seleccionar_celda_proto(k))
                 w_bind.bind("<Button-1>", lambda e, k=key: self._seleccionar_celda_proto(k))
 
-        inspector = tk.Frame(c_hdr, bg=BG_INNER, padx=12, pady=9)
+        inspector = tk.Frame(c_hdr, bg=BG_INNER, padx=12, pady=10)
         inspector.pack(fill=tk.X)
         f_ins_top = tk.Frame(inspector, bg=BG_INNER)
         f_ins_top.pack(fill=tk.X)
@@ -2680,11 +2708,16 @@ class SDRModernApp(tk.Tk):
         self.lbl_ins_badge = tk.Label(f_ins_top, text="", font=("Segoe UI", 8, "bold"), fg=COLOR_REC, bg=BG_INNER)
         self.lbl_ins_badge.pack(side=tk.RIGHT)
         self.lbl_ins_desc = tk.Label(inspector, text="", font=("Segoe UI", 8), fg=TEXT_WHITE, bg=BG_INNER, anchor="w")
-        self.lbl_ins_desc.pack(anchor="w", pady=(3, 0))
+        self.lbl_ins_desc.pack(anchor="w", pady=(4, 6))
+
+        esquema_box = tk.Frame(inspector, bg=BG_CARD, highlightbackground=BORDER_CARD, highlightthickness=1, padx=10, pady=5)
+        esquema_box.pack(fill=tk.X)
+        self.lbl_ins_esquema = tk.Label(esquema_box, text="", font=("Consolas", 8, "bold"), fg=TEXT_WHITE, bg=BG_CARD, anchor="w")
+        self.lbl_ins_esquema.pack(anchor="w")
 
         # ── 3. TARJETAS DE DECISIONES DE TRANSPORTE Y FLUJO (3 MICRO-TARJETAS) ──
         f_kpis = tk.Frame(cont, bg=BG_DARK)
-        f_kpis.pack(fill=tk.X, pady=4)
+        f_kpis.pack(fill=tk.X, pady=(6, 4))
         for i in range(3):
             f_kpis.grid_columnconfigure(i, weight=1, uniform="kpi3")
 
@@ -2693,34 +2726,24 @@ class SDRModernApp(tk.Tk):
         k1 = self._crear_tarjeta(col1, "UDP (SOCK_DGRAM) vs TCP", estado="Transporte", pady=0)
         tk.Label(k1, text="● Baja latencia — Cero Head-of-Line Blocking", font=("Segoe UI", 8, "bold"),
                  fg=COLOR_REC, bg=BG_CARD).pack(anchor="w")
-        tk.Label(k1, text="Sin esperas por ACK ni bloqueos si cae un bloque.", font=("Segoe UI", 8),
-                 fg=TEXT_SEC, bg=BG_CARD, wraplength=260, justify="left").pack(anchor="w", pady=(3, 0))
+        tk.Label(k1, text="Sin bloqueos por retransmisión ni esperas por ACK si se pierde un datagrama.", font=("Segoe UI", 8),
+                 fg=TEXT_SEC, bg=BG_CARD, wraplength=270, justify="left").pack(anchor="w", pady=(3, 0))
 
         col2 = tk.Frame(f_kpis, bg=BG_DARK)
         col2.grid(row=0, column=1, sticky="nsew", padx=3)
         k2 = self._crear_tarjeta(col2, "Conectividad PC a PC", estado="Red IP", pady=0)
-        tk.Label(k2, text=f"● IP real: {self.ip_local} (sin VMware)", font=("Segoe UI", 8, "bold"),
+        tk.Label(k2, text=f"● IP real: {self.ip_local} (obtener_ip_local)", font=("Segoe UI", 8, "bold"),
                  fg=ACCENT, bg=BG_CARD).pack(anchor="w")
-        tk.Label(k2, text="Receptor escucha en 0.0.0.0:5005 / 5018.", font=("Segoe UI", 8),
-                 fg=TEXT_SEC, bg=BG_CARD, wraplength=260, justify="left").pack(anchor="w", pady=(3, 0))
+        tk.Label(k2, text="Filtra adaptadores virtuales (VMware) y escucha abierta en 0.0.0.0:5005 / 5018.", font=("Segoe UI", 8),
+                 fg=TEXT_SEC, bg=BG_CARD, wraplength=270, justify="left").pack(anchor="w", pady=(3, 0))
 
         col3 = tk.Frame(f_kpis, bg=BG_DARK)
         col3.grid(row=0, column=2, sticky="nsew", padx=(6, 0))
         k3 = self._crear_tarjeta(col3, "Control de Flujo y Socket", estado="Estabilidad", pady=0)
-        tk.Label(k3, text="● Pacing: 10 ms/paquete (sin ráfagas)", font=("Segoe UI", 8, "bold"),
+        tk.Label(k3, text="● Pacing: 10 ms/paquete (sin ráfagas Wi-Fi/VPN)", font=("Segoe UI", 8, "bold"),
                  fg=COLOR_REC, bg=BG_CARD).pack(anchor="w")
-        tk.Label(k3, text="● SO_RCVBUF: 1 MB (anti-desbordamiento).", font=("Segoe UI", 8, "bold"),
-                 fg=TEXT_SEC, bg=BG_CARD).pack(anchor="w", pady=(3, 0))
-
-        # ── 4. BANNER DE RESUMEN EJECUTIVO (PIE DE VISTA) ──
-        c_res = self._crear_tarjeta(cont, "Síntesis para la defensa oral", estado="● Listo", acento=ACCENT, pady=6)
-        tk.Label(
-            c_res,
-            text="\"Usamos UDP/IP como transporte de baja latencia respetando la MTU de 1500 B sin fragmentación IP, "
-                 "y encima hemos diseñado nuestro protocolo binario propio en Big-Endian para numerar bloques, "
-                 "detectar pérdidas (PLC), medir jitter y avisar al receptor de la modulación y cifrado.\"",
-            font=("Segoe UI", 9, "italic"), fg=TEXT_WHITE, bg=BG_CARD, wraplength=920, justify="left"
-        ).pack(anchor="w")
+        tk.Label(k3, text="● Búfer ampliado SO_RCVBUF = 1 MB (anti-desbordamiento).", font=("Segoe UI", 8, "bold"),
+                 fg=TEXT_SEC, bg=BG_CARD, wraplength=270, justify="left").pack(anchor="w", pady=(3, 0))
 
         self._actualizar_vista_proto()
 
@@ -2743,7 +2766,8 @@ class SDRModernApp(tk.Tk):
         else:
             hdr_sdr, pay_b, lbl_sdr = 27, 1024, "SDRM: 27 B"
 
-        total = 20 + 8 + hdr_sdr + pay_b
+        cab_total = 20 + 8 + hdr_sdr
+        total = cab_total + pay_b
         max_escala = 1620.0
         pad_l, pad_r = 10, 14
         usable_w = w - pad_l - pad_r
@@ -2752,34 +2776,45 @@ class SDRModernApp(tk.Tk):
             return pad_l + (b / max_escala) * usable_w
 
         # Fondo guía hasta 1500 B
-        y1, y2 = 24, 62
+        y1, y2 = 30, 68
         x_mtu = x_de(1500)
         c.create_rectangle(pad_l, y1, x_mtu, y2, fill=BG_INNER, outline=BORDER_CARD, width=1)
 
-        bloques = [
-            (20, "IP 20B", "#64748B"),
-            (8, "UDP", "#475569"),
-            (hdr_sdr, lbl_sdr, ACCENT),
-            (pay_b, f"Carga útil Audio ({pay_b} B)", COLOR_REC),
+        # Anchos secuenciales sin solapamiento para las 3 cabeceras estrechas
+        hdr_specs = [
+            (20, "20B", "#64748B", 38),
+            (8, "8B", "#475569", 32),
+            (hdr_sdr, f"{hdr_sdr}B", ACCENT, 40),
         ]
-        b_acum = 0
-        for size_b, txt, col in bloques:
-            xa = x_de(b_acum)
-            xb = x_de(b_acum + size_b)
-            # Ancho visual mínimo para que las cabeceras pequeñas sean legibles
-            if xb - xa < 44 and size_b < 50:
-                xb = xa + 44
+        x_cur = pad_l
+        for _, txt, col, min_w in hdr_specs:
+            xa = x_cur
+            xb = xa + min_w
             c.create_rectangle(xa, y1, xb, y2, fill=col, outline=BG_CARD, width=1.5)
-            if xb - xa >= 40:
-                c.create_text((xa + xb) / 2, (y1 + y2) / 2, text=txt,
-                              font=("Segoe UI", 7, "bold"), fill="white")
-            b_acum += size_b
+            c.create_text((xa + xb) / 2, (y1 + y2) / 2, text=txt,
+                          font=("Segoe UI", 8, "bold"), fill="white")
+            x_cur = xb
+
+        # Indicador superior agrupando las 3 cabeceras
+        c.create_line(pad_l, 22, x_cur, 22, fill=ACCENT, width=1.5)
+        c.create_line(pad_l, 22, pad_l, 26, fill=ACCENT, width=1.5)
+        c.create_line(x_cur, 22, x_cur, 26, fill=ACCENT, width=1.5)
+        c.create_text((pad_l + x_cur) / 2, 12, text=f"Cabeceras: {cab_total} B",
+                      font=("Segoe UI", 8, "bold"), fill=ACCENT)
+
+        # Carga útil proporcional (siempre a la derecha de x_cur y bien antes de x_mtu)
+        x_pay_end = max(x_cur + 180, x_de(total))
+        x_pay_end = min(x_pay_end, x_mtu - 30)
+        c.create_rectangle(x_cur, y1, x_pay_end, y2, fill=COLOR_REC, outline=BG_CARD, width=1.5)
+        c.create_text((x_cur + x_pay_end) / 2, (y1 + y2) / 2,
+                      text=f"Carga útil Audio ({pay_b} B)",
+                      font=("Segoe UI", 8, "bold"), fill="white")
 
         # Línea vertical límite MTU 1500 B
-        c.create_line(x_mtu, 10, x_mtu, 78, fill=COLOR_ALERT, width=2, dash=(4, 3))
-        c.create_text(x_mtu - 4, 8, text="Límite MTU = 1.500 B", anchor="ne",
+        c.create_line(x_mtu, 12, x_mtu, 84, fill=COLOR_ALERT, width=2, dash=(4, 3))
+        c.create_text(x_mtu - 4, 10, text="Límite MTU = 1.500 B", anchor="ne",
                       font=("Segoe UI", 8, "bold"), fill=COLOR_ALERT)
-        c.create_text(x_de(total), 76, text=f"Total enviado: {total} B", anchor="e",
+        c.create_text(x_pay_end, 82, text=f"Total enviado: {total} B", anchor="e",
                       font=("Segoe UI", 8, "bold"), fill=COLOR_REC)
 
         self.lbl_mtu_resumen.config(
@@ -2793,49 +2828,56 @@ class SDRModernApp(tk.Tk):
         fc_val = int(self.f5_fc.get()) if hasattr(self, "f5_fc") else 10000
         modo_mod = self.f5_modo.get() if hasattr(self, "f5_modo") else "FM"
         mask_txt = "ON (8-bits)" if (hasattr(self, "var_mascara") and self.var_mascara.get()) else "OFF"
+        pay_b = 960 if modo == "SDR1" else 1024
         n_pkts = max(1, len(self.voz) // 512 + 1)
 
         subs = {
             "MAGIC": f"4 B ('{modo}')",
             "SEQ": f"1 .. {n_pkts}",
             "TS": "8 B double",
-            "CFG": f"{modo_mod} · {fc_val}Hz",
-            "PAY": "-50% tráfico",
+            "CFG": f"{modo_mod} · {fc_val} Hz",
+            "PAY": f"{pay_b} B (-50% BW)",
         }
         for k, (cell, lbl_t, lbl_s) in self.rfc_botones.items():
             lbl_s.config(text=subs[k])
 
         detalles = {
             "MAGIC": (
-                f"Magic ({modo}) — Filtro anti-ruido",
-                "● 4 bytes Big-Endian",
-                f"Identifica paquetes auténticos ('{modo}'). Descarta al instante tráfico ajeno o ruido en el puerto."
+                f"Magic (4 B) — Identificador '{modo}'",
+                "● 4 bytes ASCII Big-Endian",
+                f"Identificador de protocolo ({modo}). Filtra y descarta al instante tráfico ajeno o ruido en el puerto.",
+                f"[ Trama UDP ] ➔ [ ¿Magic == '{modo}'? ] ➔ [ SÍ: Desempaquetar | NO: Descartar al instante ]"
             ),
             "SEQ": (
-                "Sequence (1, 2, 3...) — Orden y PLC",
-                f"● 1 .. {n_pkts} bloques",
-                "Numera cada bloque para reordenar si llegan cruzados y activar PLC (repetición atenuada) si hay pérdidas."
+                "Seq (4 B) — Numeración correlativa y PLC",
+                f"● uint32 · 1 .. {n_pkts} bloques",
+                "Numeración correlativa para reordenar bloques y aplicar PLC (Packet Loss Concealment) ante pérdidas.",
+                "[ Pkt #14 ] ➔ [ Pkt #15 (Perdido) ➔ Repetición atenuada #14 ] ➔ [ Pkt #16 ]"
             ),
             "TS": (
-                "Timestamp — Retardo y Jitter (RFC 3550)",
-                "● Precisión en ms",
-                "Marca temporal de emisión en segundos (double 8 B). Permite medir latencia y jitter suavizado en el receptor."
+                "Timestamp (8 B) — Retardo y Jitter (RFC 3550)",
+                "● double 64-bit · Precisión en ms",
+                "Marca temporal (double) para cálculo continuo de retardo y Jitter (RFC 3550) en milisegundos.",
+                "[ t_tx (8 B) ] ➔ [ |t_rx - t_tx| = Retardo (ms) ] ➔ [ Jitter suavizado RFC 3550 ]"
             ),
             "CFG": (
-                "Config / Flags — Zero-Config en Receptor",
+                "Config & Flags — Autoconfiguración Zero-Config",
                 f"● {modo_mod} · fc={fc_val} Hz · Mask {mask_txt}",
-                "Incluye mod, fc, ka/kf, mask y m_code=99 (fin): el receptor autodetecta todo sin configurarlo a mano."
+                "Transporta modulación (AM/FM), fc, ka/kf, flag mask (esteganografía en Fase 4) y m_code = 99 (fin de transmisión).",
+                f"[ mod={modo_mod} | fc={fc_val} Hz | ka/kf | mask={mask_txt} | m_code=99 ] ➔ [ Zero-Config en RX ]"
             ),
             "PAY": (
-                "Payload (float32 ➔ int16) — Compresión 50%",
-                "● Ahorro 50% (~768 kbps)",
-                "Convierte muestras de 4 B a PCM 2 B antes de enviar por socket, reduciendo a la mitad el ancho de banda."
+                f"Payload ({pay_b} B) — Cuantización int16",
+                "● Ahorro 50% BW (~768 kbps)",
+                "Conversión float32 ➔ int16 (512 muestras). Reduce el ancho de banda de red al 50% (~768 kbps) sin pérdida audible.",
+                f"[ 512 × float32 (2.048 B) ] ➔ [ int16 ({pay_b} B) ] ➔ [ -50% Ancho de Banda (~768 kbps) ]"
             ),
         }
-        tit, badge, desc = detalles[key]
+        tit, badge, desc, esq = detalles[key]
         self.lbl_ins_titulo.config(text=tit)
         self.lbl_ins_badge.config(text=badge)
         self.lbl_ins_desc.config(text=desc)
+        self.lbl_ins_esquema.config(text=esq)
 
     def _configurar_toolbar(self, canvas, parent):
         # Barra de herramientas oculta para mantener estética limpia y moderna
